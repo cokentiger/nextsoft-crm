@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { 
   LayoutDashboard, Users, Calculator, FileText, CheckSquare, 
-  LifeBuoy, Rocket, FileBarChart, LogOut, ChevronLeft, ChevronRight, UserCog 
+  LifeBuoy, Rocket, FileBarChart, LogOut, ChevronLeft, ChevronRight, UserCog, Package 
 } from 'lucide-react'
 
 const menuItems = [
@@ -18,6 +18,7 @@ const menuItems = [
   { name: 'Hỗ trợ (Tickets)', href: '/tickets', icon: LifeBuoy },
   { name: 'Triển khai', href: '/deployments', icon: Rocket },
   { name: 'Báo cáo', href: '/reports', icon: FileBarChart },
+  { name: 'Sản phẩm', href: '/products', icon: Package },
   { name: 'Tài khoản', href: '/profile', icon: UserCog },
 ]
 
