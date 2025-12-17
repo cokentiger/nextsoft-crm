@@ -2,9 +2,23 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, DollarSign, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase } from 'lucide-react'
+import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap } from 'lucide-react'
 
-// --- COMPONENT SEARCHABLE SELECT (Đã fix lỗi Z-Index & Overflow) ---
+// CẤU HÌNH ICON & MÀU SẮC (Đồng bộ với trang Sản phẩm)
+const TYPE_CONFIG: any = {
+  'SOFTWARE': { label: 'Phần mềm', icon: Package, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  'SERVER': { label: 'Server/VPS', icon: Server, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  'SERVICE': { label: 'Dịch vụ', icon: Code, color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  'MAINTENANCE': { label: 'Bảo trì', icon: Wrench, color: 'bg-gray-100 text-gray-700 border-gray-200' }
+}
+
+const CYCLE_CONFIG: any = {
+  'ONE_TIME': { label: 'Vĩnh viễn', icon: Zap, color: 'text-gray-500' },
+  'MONTHLY': { label: '/ tháng', icon: Clock, color: 'text-green-600 font-bold' },
+  'YEARLY': { label: '/ năm', icon: Calendar, color: 'text-blue-600 font-bold' }
+}
+
+// --- COMPONENT SEARCHABLE SELECT ---
 const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name' }: any) => {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -26,7 +40,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
     <div className="relative w-full" ref={wrapperRef}>
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full border border-gray-300 px-3 py-2.5 rounded bg-white flex justify-between items-center cursor-pointer hover:border-red-500 transition h-11"
+        className="w-full border border-gray-300 px-3 py-2.5 rounded-lg bg-white flex justify-between items-center cursor-pointer hover:border-red-500 transition h-11"
       >
         <span className={`text-sm truncate ${selectedOption ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
           {selectedOption ? selectedOption[labelKey] : placeholder}
@@ -35,8 +49,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
       </div>
 
       {isOpen && (
-        // FIX: z-[9999] để đảm bảo menu luôn nổi lên trên cùng, không bị dòng dưới che
-        <div className="absolute z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-60 overflow-hidden flex flex-col min-w-[300px] left-0 animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-60 overflow-hidden flex flex-col w-full min-w-[300px] left-0 animate-in fade-in zoom-in-95 duration-100">
           <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-gray-400" />
@@ -75,12 +88,14 @@ export default function DealsPage() {
   const [showModal, setShowModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [currentUser, setCurrentUser] = useState<string|null>(null)
-  const [editingId, setEditingId] = useState<string|null>(null) // ID của deal đang sửa
+  const [editingId, setEditingId] = useState<string|null>(null)
   
   const [searchTerm, setSearchTerm] = useState(''); const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
   const supabase = createClient()
 
   const [formData, setFormData] = useState({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
+  
+  // State Items: Thêm category và billing_cycle để hiển thị
   const [selectedItems, setSelectedItems] = useState<any[]>([])
 
   useEffect(() => {
@@ -91,12 +106,12 @@ export default function DealsPage() {
   }, [])
 
   const loadData = async () => {
-    // FIX: Load thêm deal_items để phục vụ việc Sửa (Edit)
     const d = await supabase.from('deals')
       .select('*, customers(name), profiles(full_name), deal_items(*)')
       .order('created_at', { ascending: false })
     
     const c = await supabase.from('customers').select('id, name')
+    // Load thêm category, billing_cycle từ bảng products
     const p = await supabase.from('products').select('*').eq('is_active', true)
     
     setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []); setLoading(false)
@@ -116,7 +131,16 @@ export default function DealsPage() {
     const product = products.find(p => p.id === productId)
     if (!product) return
     const newItems = [...selectedItems]
-    newItems[index] = { ...newItems[index], product_id: productId, name: product.name, price: product.price }
+    
+    // Lưu thêm thông tin phân loại để hiển thị Badge
+    newItems[index] = { 
+      ...newItems[index], 
+      product_id: productId, 
+      name: product.name, 
+      price: product.price,
+      category: product.category,           // Mới
+      billing_cycle: product.billing_cycle  // Mới
+    }
     setSelectedItems(newItems)
   }
 
@@ -124,24 +148,26 @@ export default function DealsPage() {
     const newItems = [...selectedItems]; newItems[index] = { ...newItems[index], [field]: value }; setSelectedItems(newItems)
   }
 
-  // --- HÀM MỞ FORM SỬA (EDIT) ---
   const handleEdit = (deal: any) => {
     setEditingId(deal.id)
     setFormData({
-      title: deal.title,
-      customer_id: deal.customer_id,
-      stage: deal.stage,
-      expected_close_date: deal.expected_close_date || ''
+      title: deal.title, customer_id: deal.customer_id, stage: deal.stage, expected_close_date: deal.expected_close_date || ''
     })
     
-    // Map dữ liệu từ DB (deal_items) vào UI
-    const items = deal.deal_items.map((di: any) => ({
-      is_custom: !di.product_id, // Nếu không có ID sản phẩm thì là custom
-      product_id: di.product_id || '',
-      name: di.item_name, // Lấy tên đã lưu trong DB
-      price: di.price,
-      quantity: di.quantity
-    }))
+    // Map dữ liệu cũ vào form
+    const items = deal.deal_items.map((di: any) => {
+      // Tìm lại thông tin product gốc để lấy category/cycle (nếu có)
+      const originalProduct = products.find(p => p.id === di.product_id)
+      return {
+        is_custom: !di.product_id,
+        product_id: di.product_id || '',
+        name: di.item_name,
+        price: di.price,
+        quantity: di.quantity,
+        category: originalProduct?.category,          // Map lại để hiện Badge
+        billing_cycle: originalProduct?.billing_cycle // Map lại để hiện Badge
+      }
+    })
     setSelectedItems(items)
     setShowModal(true)
   }
@@ -152,7 +178,6 @@ export default function DealsPage() {
     loadData()
   }
 
-  // --- SAVE (TẠO MỚI HOẶC CẬP NHẬT) ---
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.customer_id) return alert('Chưa chọn khách hàng!')
@@ -168,21 +193,16 @@ export default function DealsPage() {
       }
 
       let dealId = editingId
-      
       if (editingId) {
-        // UPDATE
         const { error } = await supabase.from('deals').update(dealPayload).eq('id', editingId)
         if (error) throw error
-        // Xóa items cũ để lưu items mới (Cách đơn giản nhất)
         await supabase.from('deal_items').delete().eq('deal_id', editingId)
       } else {
-        // INSERT
         const { data, error } = await supabase.from('deals').insert([dealPayload]).select().single()
         if (error) throw error
         dealId = data.id
       }
 
-      // Lưu Items Mới
       const itemsPayload = selectedItems.map(item => ({
         deal_id: dealId,
         product_id: item.is_custom ? null : item.product_id,
@@ -216,30 +236,25 @@ export default function DealsPage() {
 
   return (
     <div className="p-8 h-full flex flex-col">
-      {/* HEADER */}
+      {/* HEADER & FILTER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div><h1 className="text-2xl font-bold text-gray-900">Cơ hội (Deals)</h1><p className="text-sm text-gray-500">Pipeline & Doanh thu</p></div>
         <button onClick={() => { resetForm(); setShowModal(true) }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 shadow-md transition"><Plus className="h-4 w-4"/> Thêm mới</button>
       </div>
-
-      {/* FILTER */}
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
          <div className="relative flex-1 max-w-lg"><Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" /><input type="text" placeholder="Tìm kiếm..." className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 outline-none focus:border-red-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
          <div className="flex bg-white border rounded-lg p-1"><button onClick={() => setViewMode('MINE')} className={`px-4 py-1.5 text-xs font-bold rounded ${viewMode==='MINE'?'bg-red-50 text-red-700':'text-gray-500 hover:bg-gray-50'}`}>Của tôi</button><button onClick={() => setViewMode('ALL')} className={`px-4 py-1.5 text-xs font-bold rounded ${viewMode==='ALL'?'bg-red-50 text-red-700':'text-gray-500 hover:bg-gray-50'}`}>Tất cả</button></div>
       </div>
 
-      {/* LIST DEALS (Đã thêm nút Sửa/Xóa) */}
+      {/* LIST DEALS */}
       {loading ? <div className="text-center py-10"><Loader2 className="h-8 w-8 animate-spin mx-auto text-red-500"/></div> : 
        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 overflow-y-auto pb-10">
          {filteredDeals.map((deal) => (
            <div key={deal.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative">
-             
-             {/* Action Buttons (Hiện khi hover) */}
              <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={() => handleEdit(deal)} className="p-1.5 bg-gray-100 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded" title="Sửa"><Pencil className="h-3.5 w-3.5"/></button>
                 <button onClick={() => handleDelete(deal.id)} className="p-1.5 bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded" title="Xóa"><Trash2 className="h-3.5 w-3.5"/></button>
              </div>
-
              <div>
                 <div className="flex justify-between items-start mb-2"><span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>{deal.stage}</span></div>
                 <h3 className="font-bold text-gray-900 truncate text-base mb-1 pr-14">{deal.title}</h3>
@@ -296,7 +311,7 @@ export default function DealsPage() {
                      </div>
                   </div>
 
-                  {/* Cột 2: FIX BẢNG SẢN PHẨM (Bỏ overflow-hidden để menu xổ ra ngoài) */}
+                  {/* Cột 2: BẢNG SẢN PHẨM (Nâng cấp) */}
                   <div className="border-t border-gray-100 pt-6">
                     <div className="flex justify-between items-center mb-4">
                        <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Báo giá</h3>
@@ -306,10 +321,9 @@ export default function DealsPage() {
                        </div>
                     </div>
 
-                    {/* QUAN TRỌNG: Đã xóa class overflow-hidden ở đây */}
                     <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm">
                        <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl">
-                          <div className="col-span-5 pl-2">Tên Hạng mục / Sản phẩm</div>
+                          <div className="col-span-5 pl-2">Sản phẩm / Dịch vụ</div>
                           <div className="col-span-2 text-center">SL</div>
                           <div className="col-span-2 text-right">Đơn giá</div>
                           <div className="col-span-2 text-right">Thành tiền</div>
@@ -318,9 +332,14 @@ export default function DealsPage() {
                        
                        <div className="p-3 space-y-3">
                           {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào. Bấm nút "Thêm" ở trên.</p>}
-                          {selectedItems.map((item, index) => (
-                             <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10">
-                                {/* Cột Tên */}
+                          {selectedItems.map((item, index) => {
+                             // Lấy Config Icon cho đẹp
+                             const TypeIcon = TYPE_CONFIG[item.category]?.icon
+                             const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
+
+                             return (
+                             <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group">
+                                {/* Cột Tên (Có Badge) */}
                                 <div className="col-span-5">
                                    {item.is_custom ? (
                                      <div className="relative">
@@ -330,7 +349,23 @@ export default function DealsPage() {
                                           value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} />
                                      </div>
                                    ) : (
-                                     <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
+                                     <div className="space-y-1">
+                                        <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
+                                        
+                                        {/* Hiển thị BADGE Phân loại & Chu kỳ */}
+                                        {item.category && (
+                                          <div className="flex gap-2 pl-1">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${TYPE_CONFIG[item.category]?.color}`}>
+                                              {TypeIcon && <TypeIcon className="h-3 w-3"/>} {TYPE_CONFIG[item.category]?.label}
+                                            </span>
+                                            {CycleConfig && (
+                                              <span className={`text-[10px] px-1.5 py-0.5 flex items-center gap-1 ${CycleConfig.color}`}>
+                                                {CycleConfig.icon && <CycleConfig.icon className="h-3 w-3"/>} {CycleConfig.label}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                     </div>
                                    )}
                                 </div>
                                 <div className="col-span-2"><input type="number" min="1" className="w-full p-2.5 border border-gray-300 rounded text-center text-sm outline-none focus:border-red-500" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))} /></div>
@@ -338,7 +373,8 @@ export default function DealsPage() {
                                 <div className="col-span-2 text-right"><span className="font-bold text-sm text-gray-800 block py-2">{formatMoney(item.price * item.quantity)}</span></div>
                                 <div className="col-span-1 text-right"><button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition"><Trash2 className="h-4 w-4"/></button></div>
                              </div>
-                          ))}
+                             )
+                          })}
                        </div>
                     </div>
                     <div className="flex justify-end items-center gap-4 mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
