@@ -1,5 +1,6 @@
 'use client'
 
+import UserPresence from './UserPresence' // <--- Thêm dòng này ở đầu file
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -68,6 +69,14 @@ export default function Sidebar() {
           )
         })}
       </nav>
+
+      {/* --- MỚI: HIỂN THỊ NHÂN VIÊN ONLINE --- */}
+      {/* Chỉ hiển thị khi Sidebar đang mở rộng (không bị thu nhỏ) */}
+      {!isCollapsed && (
+        <div className="px-3 pb-2">
+           <UserPresence />
+        </div>
+      )}
 
       {/* TOGGLE */}
       <button onClick={() => setIsCollapsed(!isCollapsed)} className="absolute -right-3 top-20 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:bg-red-50 hover:text-red-600 focus:outline-none">
