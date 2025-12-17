@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Package, Plus, Trash2, Search, Save, X, Server, Code, Wrench, Clock, Calendar, Zap } from 'lucide-react'
+import { Package, Plus, Trash2, Search, Save, X, Server, Code, Wrench, Clock, Calendar, Zap, Pencil, Loader2 } from 'lucide-react'
 
-// Cấu hình hiển thị Badge cho đẹp
+// Cấu hình hiển thị Badge
 const TYPE_CONFIG: any = {
   'SOFTWARE': { label: 'Phần mềm', icon: Package, color: 'bg-blue-100 text-blue-700' },
   'SERVER': { label: 'Máy chủ / VPS', icon: Server, color: 'bg-purple-100 text-purple-700' },
@@ -22,8 +22,11 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   
-  // Form Data mở rộng
+  // State để quản lý việc Sửa
+  const [editingId, setEditingId] = useState<string | null>(null)
+
   const [formData, setFormData] = useState({ 
     name: '', sku: '', price: 0, description: '', 
     category: 'SOFTWARE', billing_cycle: 'ONE_TIME' 
@@ -39,20 +42,58 @@ export default function ProductsPage() {
 
   useEffect(() => { loadProducts() }, [])
 
+  // --- HÀM XỬ LÝ FORM ---
+  
+  // 1. Mở form thêm mới (Reset dữ liệu cũ)
+  const handleAddNew = () => {
+    setEditingId(null)
+    setFormData({ name: '', sku: '', price: 0, description: '', category: 'SOFTWARE', billing_cycle: 'ONE_TIME' })
+    setIsModalOpen(true)
+  }
+
+  // 2. Mở form Sửa (Đổ dữ liệu vào form)
+  const handleEdit = (p: any) => {
+    setEditingId(p.id)
+    setFormData({
+      name: p.name,
+      sku: p.sku || '',
+      price: p.price,
+      description: p.description || '',
+      category: p.category || 'SOFTWARE',
+      billing_cycle: p.billing_cycle || 'ONE_TIME'
+    })
+    setIsModalOpen(true)
+  }
+
+  // 3. Xử lý Lưu (Tạo mới hoặc Cập nhật)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    const { error } = await supabase.from('products').insert([formData])
+    setSubmitting(true)
+    
+    let error
+    if (editingId) {
+      // UPDATE
+      const { error: updateError } = await supabase
+        .from('products')
+        .update(formData)
+        .eq('id', editingId)
+      error = updateError
+    } else {
+      // INSERT
+      const { error: insertError } = await supabase
+        .from('products')
+        .insert([formData])
+      error = insertError
+    }
     
     if (!error) {
       await loadProducts()
       setIsModalOpen(false)
-      // Reset form về mặc định
-      setFormData({ name: '', sku: '', price: 0, description: '', category: 'SOFTWARE', billing_cycle: 'ONE_TIME' })
+      handleAddNew() // Reset form
     } else {
       alert('Lỗi: ' + error.message)
     }
-    setLoading(false)
+    setSubmitting(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -72,7 +113,7 @@ export default function ProductsPage() {
           <p className="text-gray-500">Quản lý các gói phần mềm, server và đơn giá dịch vụ.</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={handleAddNew}
           className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 transition shadow-md shadow-red-100">
           <Plus className="h-5 w-5" /> Thêm mới
         </button>
@@ -116,9 +157,14 @@ export default function ProductsPage() {
                      </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button onClick={() => handleDelete(p.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition">
-                      <Trash2 className="h-5 w-5" />
-                    </button>
+                    <div className="flex justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleEdit(p)} className="p-2 text-gray-500 bg-gray-50 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Sửa">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button onClick={() => handleDelete(p.id)} className="p-2 text-gray-500 bg-gray-50 hover:text-red-600 hover:bg-red-50 rounded transition" title="Xóa">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -130,12 +176,14 @@ export default function ProductsPage() {
         </table>
       </div>
 
-      {/* Modal Thêm mới */}
+      {/* Modal Thêm/Sửa */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-900">Thêm Sản phẩm / Dịch vụ</h3>
+              <h3 className="font-bold text-lg text-gray-900">
+                {editingId ? 'Cập nhật Sản phẩm' : 'Thêm Sản phẩm mới'}
+              </h3>
               <button onClick={() => setIsModalOpen(false)}><X className="h-6 w-6 text-gray-400 hover:text-red-600" /></button>
             </div>
             
@@ -208,8 +256,9 @@ export default function ProductsPage() {
 
             <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
                <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg text-gray-600 font-bold hover:bg-gray-100 transition">Hủy bỏ</button>
-               <button type="submit" form="productForm" disabled={loading} className="px-6 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition shadow-lg shadow-red-200 flex items-center gap-2">
-                <Save className="h-4 w-4" /> Lưu sản phẩm
+               <button type="submit" form="productForm" disabled={submitting} className="px-6 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition shadow-lg shadow-red-200 flex items-center gap-2">
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Save className="h-4 w-4" />} 
+                {editingId ? 'Cập nhật' : 'Lưu sản phẩm'}
               </button>
             </div>
           </div>
