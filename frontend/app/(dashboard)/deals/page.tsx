@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap } from 'lucide-react'
+import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter } from 'lucide-react'
 
-// CẤU HÌNH ICON & MÀU SẮC (Đồng bộ với trang Sản phẩm)
+// CẤU HÌNH ICON & MÀU SẮC (Giữ nguyên)
 const TYPE_CONFIG: any = {
   'SOFTWARE': { label: 'Phần mềm', icon: Package, color: 'bg-blue-100 text-blue-700 border-blue-200' },
   'SERVER': { label: 'Server/VPS', icon: Server, color: 'bg-purple-100 text-purple-700 border-purple-200' },
@@ -18,7 +18,7 @@ const CYCLE_CONFIG: any = {
   'YEARLY': { label: '/ năm', icon: Calendar, color: 'text-blue-600 font-bold' }
 }
 
-// --- COMPONENT SEARCHABLE SELECT ---
+// --- COMPONENT SEARCHABLE SELECT (Giữ nguyên) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name' }: any) => {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -90,12 +90,15 @@ export default function DealsPage() {
   const [currentUser, setCurrentUser] = useState<string|null>(null)
   const [editingId, setEditingId] = useState<string|null>(null)
   
-  const [searchTerm, setSearchTerm] = useState(''); const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
+  // State Filter & Search
+  const [searchTerm, setSearchTerm] = useState('')
+  const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
+  // [NEW] State bộ lọc tháng: mặc định là tháng hiện tại (format YYYY-MM)
+  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
+
   const supabase = createClient()
 
   const [formData, setFormData] = useState({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
-  
-  // State Items: Thêm category và billing_cycle để hiển thị
   const [selectedItems, setSelectedItems] = useState<any[]>([])
 
   useEffect(() => {
@@ -111,13 +114,12 @@ export default function DealsPage() {
       .order('created_at', { ascending: false })
     
     const c = await supabase.from('customers').select('id, name')
-    // Load thêm category, billing_cycle từ bảng products
     const p = await supabase.from('products').select('*').eq('is_active', true)
     
     setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []); setLoading(false)
   }
 
-  // --- LOGIC ---
+  // --- LOGIC FORM ---
   const totalDealValue = selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
 
   const addProductItem = () => setSelectedItems([...selectedItems, { is_custom: false, product_id: '', name: '', price: 0, quantity: 1 }])
@@ -131,15 +133,13 @@ export default function DealsPage() {
     const product = products.find(p => p.id === productId)
     if (!product) return
     const newItems = [...selectedItems]
-    
-    // Lưu thêm thông tin phân loại để hiển thị Badge
     newItems[index] = { 
       ...newItems[index], 
       product_id: productId, 
       name: product.name, 
       price: product.price,
-      category: product.category,           // Mới
-      billing_cycle: product.billing_cycle  // Mới
+      category: product.category,
+      billing_cycle: product.billing_cycle
     }
     setSelectedItems(newItems)
   }
@@ -153,10 +153,7 @@ export default function DealsPage() {
     setFormData({
       title: deal.title, customer_id: deal.customer_id, stage: deal.stage, expected_close_date: deal.expected_close_date || ''
     })
-    
-    // Map dữ liệu cũ vào form
     const items = deal.deal_items.map((di: any) => {
-      // Tìm lại thông tin product gốc để lấy category/cycle (nếu có)
       const originalProduct = products.find(p => p.id === di.product_id)
       return {
         is_custom: !di.product_id,
@@ -164,8 +161,8 @@ export default function DealsPage() {
         name: di.item_name,
         price: di.price,
         quantity: di.quantity,
-        category: originalProduct?.category,          // Map lại để hiện Badge
-        billing_cycle: originalProduct?.billing_cycle // Map lại để hiện Badge
+        category: originalProduct?.category,
+        billing_cycle: originalProduct?.billing_cycle
       }
     })
     setSelectedItems(items)
@@ -182,9 +179,7 @@ export default function DealsPage() {
     e.preventDefault()
     if (!formData.customer_id) return alert('Chưa chọn khách hàng!')
     if (selectedItems.length === 0) return alert('Chưa chọn sản phẩm/dịch vụ nào!')
-    const invalidItem = selectedItems.find(i => i.is_custom && !i.name.trim())
-    if (invalidItem) return alert('Vui lòng nhập tên cho các dòng Dịch vụ khác!')
-
+    
     setSubmitting(true)
     try {
       const dealPayload = {
@@ -228,46 +223,157 @@ export default function DealsPage() {
   }
 
   const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+
+  // --- LOGIC FILTER & GROUPING ---
   
-  const filteredDeals = deals.filter(d => 
+  // 1. Lọc theo text và quyền sở hữu
+  const baseFilteredDeals = deals.filter(d => 
     (viewMode === 'ALL' || d.assigned_to === currentUser) &&
     (d.title.toLowerCase().includes(searchTerm.toLowerCase()) || d.customers?.name.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
+  // 2. Lọc theo tháng (Nếu có chọn)
+  const monthFilteredDeals = monthFilter 
+    ? baseFilteredDeals.filter(d => d.created_at.startsWith(monthFilter))
+    : baseFilteredDeals
+
+  // 3. Phân chia khu vực (Grouping)
+  const groupRunning = monthFilteredDeals.filter(d => ['NEW', 'NEGOTIATION'].includes(d.stage))
+  const groupWon = monthFilteredDeals.filter(d => d.stage === 'WON')
+  const groupLost = monthFilteredDeals.filter(d => d.stage === 'LOST')
+
+  // Tính tổng giá trị từng nhóm
+  const sumValue = (list: any[]) => list.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0)
+
+  // Helper render card
+  const renderDealCard = (deal: any) => (
+    <div key={deal.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative mb-3">
+      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+         <button onClick={() => handleEdit(deal)} className="p-1.5 bg-gray-100 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded" title="Sửa"><Pencil className="h-3 w-3"/></button>
+         <button onClick={() => handleDelete(deal.id)} className="p-1.5 bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded" title="Xóa"><Trash2 className="h-3 w-3"/></button>
+      </div>
+      <div>
+         <div className="flex justify-between items-start mb-2">
+           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+             {deal.stage}
+           </span>
+         </div>
+         <h3 className="font-bold text-gray-900 truncate text-sm mb-1 pr-10">{deal.title}</h3>
+         <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-2"><User className="h-3 w-3 text-gray-400"/> {deal.customers?.name}</div>
+      </div>
+      <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+        <span className="font-bold text-red-700 text-sm">{formatMoney(deal.value)}</span>
+        <span className="text-[10px] text-gray-400">{new Date(deal.created_at).toLocaleDateString('vi-VN')}</span>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="p-8 h-full flex flex-col">
-      {/* HEADER & FILTER */}
+    <div className="p-8 h-full flex flex-col bg-gray-50/50">
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <div><h1 className="text-2xl font-bold text-gray-900">Cơ hội (Deals)</h1><p className="text-sm text-gray-500">Pipeline & Doanh thu</p></div>
-        <button onClick={() => { resetForm(); setShowModal(true) }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 shadow-md transition"><Plus className="h-4 w-4"/> Thêm mới</button>
-      </div>
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-         <div className="relative flex-1 max-w-lg"><Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" /><input type="text" placeholder="Tìm kiếm..." className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 outline-none focus:border-red-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-         <div className="flex bg-white border rounded-lg p-1"><button onClick={() => setViewMode('MINE')} className={`px-4 py-1.5 text-xs font-bold rounded ${viewMode==='MINE'?'bg-red-50 text-red-700':'text-gray-500 hover:bg-gray-50'}`}>Của tôi</button><button onClick={() => setViewMode('ALL')} className={`px-4 py-1.5 text-xs font-bold rounded ${viewMode==='ALL'?'bg-red-50 text-red-700':'text-gray-500 hover:bg-gray-50'}`}>Tất cả</button></div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Cơ hội (Deals)</h1>
+          <p className="text-sm text-gray-500">Quản lý Pipeline & Doanh thu</p>
+        </div>
+        <button onClick={() => { resetForm(); setShowModal(true) }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 shadow-md transition text-sm">
+          <Plus className="h-4 w-4"/> Thêm mới
+        </button>
       </div>
 
-      {/* LIST DEALS */}
-      {loading ? <div className="text-center py-10"><Loader2 className="h-8 w-8 animate-spin mx-auto text-red-500"/></div> : 
-       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 overflow-y-auto pb-10">
-         {filteredDeals.map((deal) => (
-           <div key={deal.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative">
-             <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleEdit(deal)} className="p-1.5 bg-gray-100 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded" title="Sửa"><Pencil className="h-3.5 w-3.5"/></button>
-                <button onClick={() => handleDelete(deal.id)} className="p-1.5 bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded" title="Xóa"><Trash2 className="h-3.5 w-3.5"/></button>
-             </div>
-             <div>
-                <div className="flex justify-between items-start mb-2"><span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>{deal.stage}</span></div>
-                <h3 className="font-bold text-gray-900 truncate text-base mb-1 pr-14">{deal.title}</h3>
-                <div className="flex items-center gap-1.5 text-sm text-gray-600 mb-3"><User className="h-3.5 w-3.5 text-gray-400"/> {deal.customers?.name}</div>
-                <div className="space-y-1"><div className="flex items-center gap-2 text-xs text-gray-500"><span className="text-gray-400">Phụ trách:</span> {deal.profiles?.full_name || 'Chưa giao'}</div>{deal.expected_close_date && (<div className="flex items-center gap-2 text-xs text-orange-600 font-medium"><Calendar className="h-3 w-3"/> Dự kiến: {new Date(deal.expected_close_date).toLocaleDateString('vi-VN')}</div>)}</div>
-             </div>
-             <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-end"><span className="font-bold text-red-700 text-lg">{formatMoney(deal.value)}</span><span className="text-[10px] text-gray-400">{new Date(deal.created_at).toLocaleDateString('vi-VN')}</span></div>
-           </div>
-         ))}
-       </div>
-      }
+      {/* TOOLBAR: FILTER & SEARCH */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+         {/* Search */}
+         <div className="relative flex-1 w-full md:max-w-md">
+           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+           <input type="text" placeholder="Tìm kiếm deal, khách hàng..." 
+             className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 outline-none focus:border-red-500 text-sm" 
+             value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
+           />
+         </div>
 
-      {/* --- MODAL FORM --- */}
+         {/* Filters Right Side */}
+         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            {/* [NEW] Month Filter */}
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5">
+               <Filter className="h-4 w-4 text-gray-500"/>
+               <span className="text-xs font-bold text-gray-500 hidden sm:inline">Tháng:</span>
+               <input 
+                 type="month" 
+                 className="bg-transparent text-sm font-medium outline-none text-gray-700 cursor-pointer"
+                 value={monthFilter}
+                 onChange={(e) => setMonthFilter(e.target.value)}
+               />
+               {monthFilter && (
+                 <button onClick={() => setMonthFilter('')} className="text-xs text-red-500 hover:underline ml-1">Xóa</button>
+               )}
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button onClick={() => setViewMode('MINE')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='MINE'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Của tôi</button>
+              <button onClick={() => setViewMode('ALL')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='ALL'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Tất cả</button>
+            </div>
+         </div>
+      </div>
+
+      {/* MAIN CONTENT: GROUPED SECTIONS */}
+      {loading ? (
+        <div className="text-center py-20"><Loader2 className="h-10 w-10 animate-spin mx-auto text-red-500"/></div>
+      ) : (
+        <div className="flex-1 overflow-x-auto pb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-[1024px]">
+            
+            {/* Cột 1: ĐANG THỰC HIỆN */}
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Đang thực hiện
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupRunning.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-blue-600">{formatMoney(sumValue(groupRunning))}</span>
+               </div>
+               <div className="bg-gray-100/50 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
+                  {groupRunning.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal nào đang chạy</p>}
+                  {groupRunning.map(renderDealCard)}
+               </div>
+            </div>
+
+            {/* Cột 2: THÀNH CÔNG */}
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span> Thành công
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupWon.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-green-600">{formatMoney(sumValue(groupWon))}</span>
+               </div>
+               <div className="bg-green-50/30 p-2 rounded-xl flex-1 border border-dashed border-green-200 min-h-[200px]">
+                  {groupWon.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Chưa có deal thành công tháng này</p>}
+                  {groupWon.map(renderDealCard)}
+               </div>
+            </div>
+
+            {/* Cột 3: THẤT BẠI / DỪNG */}
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-gray-500"></span> Chưa thành công
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupLost.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-gray-500">{formatMoney(sumValue(groupLost))}</span>
+               </div>
+               <div className="bg-gray-100 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
+                  {groupLost.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal thất bại</p>}
+                  {groupLost.map(renderDealCard)}
+               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL FORM (Giữ nguyên không đổi) --- */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[95vh]">
@@ -311,7 +417,7 @@ export default function DealsPage() {
                      </div>
                   </div>
 
-                  {/* Cột 2: BẢNG SẢN PHẨM (Nâng cấp) */}
+                  {/* Cột 2: BẢNG SẢN PHẨM */}
                   <div className="border-t border-gray-100 pt-6">
                     <div className="flex justify-between items-center mb-4">
                        <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Báo giá</h3>
@@ -333,13 +439,11 @@ export default function DealsPage() {
                        <div className="p-3 space-y-3">
                           {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào. Bấm nút "Thêm" ở trên.</p>}
                           {selectedItems.map((item, index) => {
-                             // Lấy Config Icon cho đẹp
                              const TypeIcon = TYPE_CONFIG[item.category]?.icon
                              const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
 
                              return (
                              <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group">
-                                {/* Cột Tên (Có Badge) */}
                                 <div className="col-span-5">
                                    {item.is_custom ? (
                                      <div className="relative">
@@ -351,8 +455,6 @@ export default function DealsPage() {
                                    ) : (
                                      <div className="space-y-1">
                                         <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
-                                        
-                                        {/* Hiển thị BADGE Phân loại & Chu kỳ */}
                                         {item.category && (
                                           <div className="flex gap-2 pl-1">
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${TYPE_CONFIG[item.category]?.color}`}>
