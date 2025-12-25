@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown } from 'lucide-react'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer, MapPin, Phone, Mail } from 'lucide-react'
+import ReactToPrint from 'react-to-print';
 
 // --- CẤU HÌNH ICON & MÀU SẮC ---
 const TYPE_CONFIG: any = {
@@ -20,604 +19,488 @@ const CYCLE_CONFIG: any = {
   'YEARLY': { label: '/ năm', icon: Calendar, color: 'text-blue-600 font-bold' }
 }
 
-// --- COMPONENT SEARCHABLE SELECT ---
-const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name' }: any) => {
-  const [isOpen, setIsOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  const filteredOptions = options.filter((opt: any) => 
-    opt[labelKey].toLowerCase().includes(search.toLowerCase())
-  )
-  const selectedOption = options.find((opt: any) => opt.id === value)
-
-  useEffect(() => {
-    function handleClickOutside(event: any) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false)
-    }
-    document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
-
-  return (
-    <div className="relative w-full" ref={wrapperRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full border border-gray-300 px-3 py-2.5 rounded-lg bg-white flex justify-between items-center cursor-pointer hover:border-red-500 transition h-11"
-      >
-        <span className={`text-sm truncate ${selectedOption ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
-          {selectedOption ? selectedOption[labelKey] : placeholder}
-        </span>
-        <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0 ml-2" />
-      </div>
-
-      {isOpen && (
-        <div className="absolute z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-60 overflow-hidden flex flex-col w-full min-w-[300px] left-0 animate-in fade-in zoom-in-95 duration-100">
-          <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-gray-400" />
-              <input 
-                autoFocus type="text" 
-                className="w-full pl-8 pr-2 py-2 text-sm border border-gray-200 rounded outline-none focus:border-red-500"
-                placeholder="Gõ từ khóa..."
-                value={search} onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((opt: any) => (
-                <div key={opt.id} onClick={() => { onChange(opt.id); setIsOpen(false); setSearch('') }}
-                  className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-red-50 border-b border-gray-50 last:border-0 flex justify-between items-center ${opt.id === value ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}
-                >
-                  <span className="truncate mr-2">{opt[labelKey]}</span>
-                  {opt.id === value && <Check className="h-4 w-4 flex-shrink-0"/>}
-                </div>
-              ))
-            ) : <div className="p-4 text-sm text-gray-400 text-center">Không tìm thấy kết quả.</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
+const formatMoney = (amount: number) => {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount)
 }
 
-// --- TRANG CHÍNH ---
-export default function DealsPage() {
+export default function DealManager() {
+  const supabase = createClient()
   const [deals, setDeals] = useState<any[]>([])
-  const [customers, setCustomers] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [exporting, setExporting] = useState(false) // Trạng thái loading khi xuất PDF
   const [showModal, setShowModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [currentUser, setCurrentUser] = useState<string|null>(null)
-  const [editingId, setEditingId] = useState<string|null>(null)
   
-  // State Filter & Search
-  const [searchTerm, setSearchTerm] = useState('')
-  const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
-  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
+  // Ref cho tính năng in ấn
+  const printRef = useRef<HTMLDivElement>(null);
 
-  const supabase = createClient()
+  // State cho form
+  const [deal, setDeal] = useState<any>({
+    customer_name: '',
+    customer_phone: '',
+    customer_email: '',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: '',
+    status: 'DRAFT',
+    note: ''
+  })
+  
+  const [items, setItems] = useState<any[]>([])
 
-  const [formData, setFormData] = useState({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
-  const [selectedItems, setSelectedItems] = useState<any[]>([])
+  // --- LẤY DỮ LIỆU ---
+  const fetchDeals = async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('deals')
+        .select(`
+          *,
+          deal_items (*)
+        `)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setDeals(data || [])
+    } catch (error) {
+      console.error('Lỗi tải dữ liệu:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser(); setCurrentUser(user?.id || null); loadData()
-    }
-    init()
+    fetchDeals()
   }, [])
 
-  const loadData = async () => {
-    const d = await supabase.from('deals')
-      .select('*, customers(name), profiles(full_name), deal_items(*)')
-      .order('created_at', { ascending: false })
+  // --- XỬ LÝ FORM ---
+  const handleAddItem = () => {
+    setItems([...items, {
+      service_name: '',
+      service_type: 'SOFTWARE',
+      billing_cycle: 'ONE_TIME',
+      quantity: 1,
+      unit_price: 0,
+      total_price: 0,
+      description: ''
+    }])
+  }
+
+  const handleUpdateItem = (index: number, field: string, value: any) => {
+    const newItems = [...items]
+    newItems[index] = { ...newItems[index], [field]: value }
     
-    const c = await supabase.from('customers').select('id, name')
-    const p = await supabase.from('products').select('*').eq('is_active', true)
+    // Tự động tính thành tiền
+    if (field === 'quantity' || field === 'unit_price') {
+      newItems[index].total_price = newItems[index].quantity * newItems[index].unit_price
+    }
     
-    setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []); setLoading(false)
+    setItems(newItems)
   }
 
-  // --- LOGIC FORM ---
-  const totalDealValue = selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-  const addProductItem = () => setSelectedItems([...selectedItems, { is_custom: false, product_id: '', name: '', price: 0, quantity: 1 }])
-  const addCustomItem = () => setSelectedItems([...selectedItems, { is_custom: true, product_id: null, name: '', price: 0, quantity: 1 }])
-  
-  const removeItem = (index: number) => {
-    const newItems = [...selectedItems]; newItems.splice(index, 1); setSelectedItems(newItems)
+  const handleRemoveItem = (index: number) => {
+    setItems(items.filter((_, i) => i !== index))
   }
 
-  const handleProductChange = (index: number, productId: string) => {
-    const product = products.find(p => p.id === productId)
-    if (!product) return
-    const newItems = [...selectedItems]
-    newItems[index] = { ...newItems[index], product_id: productId, name: product.name, price: product.price, category: product.category, billing_cycle: product.billing_cycle }
-    setSelectedItems(newItems)
-  }
-
-  const handleItemChange = (index: number, field: string, value: any) => {
-    const newItems = [...selectedItems]; newItems[index] = { ...newItems[index], [field]: value }; setSelectedItems(newItems)
-  }
-
-  const handleEdit = (deal: any) => {
-    setEditingId(deal.id)
-    setFormData({
-      title: deal.title, customer_id: deal.customer_id, stage: deal.stage, expected_close_date: deal.expected_close_date || ''
-    })
-    const items = deal.deal_items.map((di: any) => {
-      const originalProduct = products.find(p => p.id === di.product_id)
-      return {
-        is_custom: !di.product_id,
-        product_id: di.product_id || '',
-        name: di.item_name,
-        price: di.price,
-        quantity: di.quantity,
-        category: originalProduct?.category,
-        billing_cycle: originalProduct?.billing_cycle
-      }
-    })
-    setSelectedItems(items)
-    setShowModal(true)
-  }
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Bạn có chắc muốn xóa Cơ hội này không?')) return
-    await supabase.from('deals').delete().eq('id', id)
-    loadData()
-  }
-
-  // --- TÍNH NĂNG XUẤT PDF (LOGO + FONT VIỆT) ---
-  const exportToPDF = async () => {
-    if (!formData.customer_id || selectedItems.length === 0) {
-      return alert('Vui lòng chọn khách hàng và sản phẩm trước khi xuất báo giá!')
-    }
-
-    // ==================================================================================
-    // ⚠️ QUAN TRỌNG: Dán chuỗi Base64 Logo của bạn vào giữa cặp dấu ngoặc kép bên dưới
-    // Ví dụ: const logoBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
-    // ==================================================================================
-    const logoBase64 = "data:image/png;base64,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" // <--- DÁN MÃ LOGO VÀO ĐÂY (nếu rỗng sẽ hiện text dự phòng)
-
-    setExporting(true)
-
-    try {
-      const doc = new jsPDF()
-
-      // 1. Tải Font Tiếng Việt từ thư mục public/fonts/Roboto-Regular.ttf
-      const fontUrl = window.location.origin + '/fonts/Roboto-Regular.ttf'
-      const fontResponse = await fetch(fontUrl)
-      
-      if (!fontResponse.ok) {
-        throw new Error('Không tìm thấy font! Hãy chắc chắn file Roboto-Regular.ttf nằm trong thư mục public/fonts/')
-      }
-
-      const fontBlob = await fontResponse.blob()
-      const reader = new FileReader()
-      
-      reader.readAsDataURL(fontBlob)
-      reader.onloadend = () => {
-        const base64data = reader.result?.toString().split(',')[1]
-        
-        if (base64data) {
-          // --- CẤU HÌNH FONT ---
-          doc.addFileToVFS('Roboto-Regular.ttf', base64data)
-          doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal')
-          doc.setFont('Roboto')
-          
-          // --- BẮT ĐẦU VẼ PDF ---
-          const customer = customers.find((c: any) => c.id === formData.customer_id)
-          const currentDeal = deals.find(d => d.id === editingId)
-          const creatorName = currentDeal?.profiles?.full_name || 'Admin'
-
-          // 1. HEADER (LOGO + THÔNG TIN)
-          if (logoBase64 && logoBase64.length > 50) {
-             // Nếu có logo thì vẽ logo (x=14, y=10, width=50, height=auto)
-             doc.addImage(logoBase64, 'PNG', 14, 10, 50, 15)
-          } else {
-             // Nếu chưa có logo thì hiện tên text
-             doc.setFontSize(20)
-             doc.setTextColor(220, 38, 38)
-             doc.text("NEXTSOFT TECHNOLOGY", 14, 22)
-          }
-          
-          doc.setFontSize(10)
-          doc.setTextColor(100)
-          // Tinh chỉnh toạ độ y (số thứ 2) nếu logo của bạn to quá đè lên chữ
-          doc.text("Công ty TNHH MTV Tiếp Bước Công Nghệ", 14, 32)
-          doc.text("Địa chỉ: 48/23 Nguyễn Trãi , Phường Ninh Kiều, TP. Cần Thơ", 14, 37)
-          doc.text("Website: nextsoft.vn | Hotline: 0939.616.929", 14, 42)
-          
-          // Đường kẻ ngang phân cách
-          doc.setDrawColor(200, 200, 200)
-          doc.line(14, 48, 196, 48)
-
-          // 2. THÔNG TIN DEAL
-          doc.setFontSize(16)
-          doc.setTextColor(0)
-          doc.text("BẢNG BÁO GIÁ / QUOTATION", 105, 65, { align: 'center' })
-          
-          doc.setFontSize(10)
-          doc.text(`Mã số: #DEAL-${editingId ? editingId.slice(0,6).toUpperCase() : 'NEW'}`, 14, 80)
-          doc.text(`Ngày lập: ${new Date().toLocaleDateString('vi-VN')}`, 14, 86)
-          
-          // Thông tin khách hàng (In đậm tiêu đề)
-          doc.setFont('Roboto', 'normal') // Reset font style
-          doc.text(`Kính gửi Quý Khách hàng:`, 14, 96)
-          doc.setFontSize(11)
-          doc.text(`${customer?.name || 'Khách lẻ'}`, 40, 96)
-          
-          doc.setFontSize(10)
-          doc.text(`Dự án triển khai: ${formData.title}`, 14, 102)
-
-          // 3. BẢNG SẢN PHẨM (AutoTable)
-          const tableColumn = ["STT", "Tên Sản Phẩm / Dịch Vụ", "Phân loại", "SL", "Đơn giá", "Thành tiền"]
-          const tableRows = selectedItems.map((item, index) => [
-            index + 1,
-            item.name,
-            item.category ? TYPE_CONFIG[item.category]?.label : 'Khác',
-            item.quantity,
-            new Intl.NumberFormat('vi-VN').format(item.price), 
-            new Intl.NumberFormat('vi-VN').format(item.price * item.quantity)
-          ])
-
-          autoTable(doc, {
-            startY: 110,
-            head: [tableColumn],
-            body: tableRows,
-            theme: 'grid',
-            // Style cho Header bảng (Màu đỏ NextSoft)
-            headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold', halign: 'center' },
-            // Style cho Body
-            styles: { 
-              font: "Roboto", 
-              fontSize: 9,
-              cellPadding: 3,
-              valign: 'middle'
-            },
-            columnStyles: {
-              0: { halign: 'center', cellWidth: 12 }, // STT
-              1: { cellWidth: 'auto' }, // Tên
-              2: { cellWidth: 25 }, // Phân loại
-              3: { halign: 'center', cellWidth: 15 }, // SL
-              4: { halign: 'right', cellWidth: 30 }, // Đơn giá
-              5: { halign: 'right', cellWidth: 35, fontStyle: 'bold' } // Thành tiền
-            }
-          })
-
-          // 4. TỔNG TIỀN & FOOTER
-          const finalY = (doc as any).lastAutoTable.finalY + 10
-          
-          // Tổng tiền
-          doc.setFontSize(12)
-          doc.setTextColor(220, 38, 38) // Màu đỏ
-          const totalString = new Intl.NumberFormat('vi-VN').format(totalDealValue)
-          doc.text(`TỔNG CỘNG: ${totalString} VNĐ`, 196, finalY, { align: 'right' })
-          
-          doc.setFontSize(10)
-          doc.setTextColor(100) // Màu xám
-          doc.text("(Giá trên đã bao gồm thuế GTGT)", 196, finalY + 6, { align: 'right' })
-          
-          // Chữ ký
-          doc.setTextColor(0)
-          doc.text("Người lập báo giá", 160, finalY + 30, { align: 'center' })
-          
-          // Tên người lập (In đậm)
-          doc.setFontSize(11)
-          doc.text(creatorName, 160, finalY + 55, { align: 'center' })
-
-          // Footer cuối trang
-          const pageHeight = doc.internal.pageSize.height
-          doc.setFontSize(8)
-          doc.setTextColor(150)
-          doc.text("NextSoft CRM - Hệ thống quản lý doanh nghiệp toàn diện", 105, pageHeight - 10, { align: 'center' })
-
-          // Lưu file
-          doc.save(`Bao_gia_${customer?.name || 'KHACH'}_${new Date().toISOString().slice(0,10)}.pdf`)
-          setExporting(false)
-        }
-      }
-    } catch (err: any) {
-      alert('Lỗi xuất PDF: ' + err.message)
-      setExporting(false)
-    }
-  }
-
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.customer_id) return alert('Chưa chọn khách hàng!')
-    if (selectedItems.length === 0) return alert('Chưa chọn sản phẩm/dịch vụ nào!')
-    
     setSubmitting(true)
+    
     try {
-      const dealPayload = {
-        title: formData.title, customer_id: formData.customer_id, stage: formData.stage,
-        value: totalDealValue, assigned_to: currentUser, expected_close_date: formData.expected_close_date || null
+      // 1. Lưu Deal
+      const { data: dealData, error: dealError } = await supabase
+        .from('deals')
+        .upsert([{
+           id: deal.id, // Nếu có id thì update, không thì insert
+           ...deal,
+           total_value: items.reduce((sum, item) => sum + item.total_price, 0)
+        }])
+        .select()
+        .single()
+
+      if (dealError) throw dealError
+
+      // 2. Lưu Items (Xóa cũ thêm mới cho đơn giản)
+      if (deal.id) {
+        await supabase.from('deal_items').delete().eq('deal_id', deal.id)
       }
 
-      let dealId = editingId
-      if (editingId) {
-        const { error } = await supabase.from('deals').update(dealPayload).eq('id', editingId)
-        if (error) throw error
-        await supabase.from('deal_items').delete().eq('deal_id', editingId)
-      } else {
-        const { data, error } = await supabase.from('deals').insert([dealPayload]).select().single()
-        if (error) throw error
-        dealId = data.id
-      }
-
-      const itemsPayload = selectedItems.map(item => ({
-        deal_id: dealId,
-        product_id: item.is_custom ? null : item.product_id,
-        item_name: item.name, 
-        quantity: item.quantity,
-        price: item.price
+      const itemsToInsert = items.map(item => ({
+        deal_id: dealData.id,
+        ...item
       }))
-      const { error: err2 } = await supabase.from('deal_items').insert(itemsPayload)
-      if (err2) throw err2
 
-      setShowModal(false); resetForm(); loadData()
-    } catch (err: any) {
-      alert('Lỗi: ' + err.message)
+      const { error: itemsError } = await supabase.from('deal_items').insert(itemsToInsert)
+      if (itemsError) throw itemsError
+
+      await fetchDeals()
+      setShowModal(false)
+      // Reset form
+      setDeal({
+        customer_name: '',
+        customer_phone: '',
+        customer_email: '',
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: '',
+        status: 'DRAFT',
+        note: ''
+      })
+      setItems([])
+
+    } catch (error) {
+      console.error('Lỗi lưu:', error)
+      alert('Có lỗi xảy ra!')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const resetForm = () => { 
-    setEditingId(null)
-    setFormData({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
-    setSelectedItems([]) 
+  const openEdit = (d: any) => {
+    setDeal({
+        id: d.id,
+        customer_name: d.customer_name,
+        customer_phone: d.customer_phone,
+        customer_email: d.customer_email,
+        start_date: d.start_date,
+        end_date: d.end_date,
+        status: d.status,
+        note: d.note
+    })
+    setItems(d.deal_items || [])
+    setShowModal(true)
   }
 
-  const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+  const totalDealValue = items.reduce((sum, item) => sum + (item.total_price || 0), 0)
 
-  // --- LOGIC FILTER & GROUPING ---
-  const baseFilteredDeals = deals.filter(d => 
-    (viewMode === 'ALL' || d.assigned_to === currentUser) &&
-    (d.title.toLowerCase().includes(searchTerm.toLowerCase()) || d.customers?.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
-
-  const monthFilteredDeals = monthFilter 
-    ? baseFilteredDeals.filter(d => d.created_at.startsWith(monthFilter))
-    : baseFilteredDeals
-
-  const groupRunning = monthFilteredDeals.filter(d => ['NEW', 'NEGOTIATION'].includes(d.stage))
-  const groupWon = monthFilteredDeals.filter(d => d.stage === 'WON')
-  const groupLost = monthFilteredDeals.filter(d => d.stage === 'LOST')
-  const sumValue = (list: any[]) => list.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0)
-
-  const renderDealCard = (deal: any) => (
-    <div key={deal.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative mb-3">
-      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-         <button onClick={() => handleEdit(deal)} className="p-1.5 bg-gray-100 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded" title="Sửa"><Pencil className="h-3 w-3"/></button>
-         <button onClick={() => handleDelete(deal.id)} className="p-1.5 bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded" title="Xóa"><Trash2 className="h-3 w-3"/></button>
-      </div>
-      <div>
-         <div className="flex justify-between items-start mb-2">
-           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
-             {deal.stage}
-           </span>
-         </div>
-         <h3 className="font-bold text-gray-900 truncate text-sm mb-1 pr-10">{deal.title}</h3>
-         <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-2"><User className="h-3 w-3 text-gray-400"/> {deal.customers?.name}</div>
-      </div>
-      <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
-        <span className="font-bold text-red-700 text-sm">{formatMoney(deal.value)}</span>
-        <span className="text-[10px] text-gray-400">{new Date(deal.created_at).toLocaleDateString('vi-VN')}</span>
-      </div>
-    </div>
-  )
-
+  // --- RENDER ---
   return (
-    <div className="p-8 h-full flex flex-col bg-gray-50/50">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+    <div className="p-6 max-w-[1600px] mx-auto space-y-6 bg-gray-50 min-h-screen font-sans">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Cơ hội (Deals)</h1>
-          <p className="text-sm text-gray-500">Quản lý Pipeline & Doanh thu</p>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Quản Lý Báo Giá</h1>
+          <p className="text-gray-500 mt-1 flex items-center gap-2">
+            <Briefcase className="h-4 w-4" />
+            Theo dõi và quản lý các thỏa thuận kinh doanh
+          </p>
         </div>
-        <button onClick={() => { resetForm(); setShowModal(true) }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 shadow-md transition text-sm">
-          <Plus className="h-4 w-4"/> Thêm mới
+        <button 
+          onClick={() => {
+            setDeal({
+                customer_name: '',
+                customer_phone: '',
+                customer_email: '',
+                start_date: new Date().toISOString().split('T')[0],
+                status: 'DRAFT',
+            })
+            setItems([])
+            setShowModal(true)
+          }}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-blue-200 transition-all flex items-center gap-2 transform hover:-translate-y-0.5"
+        >
+          <Plus className="h-5 w-5" /> Tạo Báo Giá Mới
         </button>
       </div>
 
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
-         <div className="relative flex-1 w-full md:max-w-md">
-           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-           <input type="text" placeholder="Tìm kiếm deal, khách hàng..." 
-             className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 outline-none focus:border-red-500 text-sm" 
-             value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
-           />
-         </div>
-         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5">
-               <Filter className="h-4 w-4 text-gray-500"/>
-               <span className="text-xs font-bold text-gray-500 hidden sm:inline">Tháng:</span>
-               <input type="month" className="bg-transparent text-sm font-medium outline-none text-gray-700 cursor-pointer" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
-               {monthFilter && (<button onClick={() => setMonthFilter('')} className="text-xs text-red-500 hover:underline ml-1">Xóa</button>)}
-            </div>
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button onClick={() => setViewMode('MINE')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='MINE'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Của tôi</button>
-              <button onClick={() => setViewMode('ALL')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='ALL'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Tất cả</button>
-            </div>
-         </div>
-      </div>
-
-      {loading ? (
-        <div className="text-center py-20"><Loader2 className="h-10 w-10 animate-spin mx-auto text-red-500"/></div>
-      ) : (
-        <div className="flex-1 overflow-x-auto pb-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-[1024px]">
-            <div className="flex flex-col h-full">
-               <div className="flex justify-between items-center mb-3 px-1">
-                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Đang thực hiện
-                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupRunning.length}</span>
-                  </h3>
-                  <span className="text-sm font-bold text-blue-600">{formatMoney(sumValue(groupRunning))}</span>
-               </div>
-               <div className="bg-gray-100/50 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
-                  {groupRunning.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal nào đang chạy</p>}
-                  {groupRunning.map(renderDealCard)}
-               </div>
-            </div>
-            <div className="flex flex-col h-full">
-               <div className="flex justify-between items-center mb-3 px-1">
-                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span> Thành công
-                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupWon.length}</span>
-                  </h3>
-                  <span className="text-sm font-bold text-green-600">{formatMoney(sumValue(groupWon))}</span>
-               </div>
-               <div className="bg-green-50/30 p-2 rounded-xl flex-1 border border-dashed border-green-200 min-h-[200px]">
-                  {groupWon.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Chưa có deal thành công tháng này</p>}
-                  {groupWon.map(renderDealCard)}
-               </div>
-            </div>
-            <div className="flex flex-col h-full">
-               <div className="flex justify-between items-center mb-3 px-1">
-                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-gray-500"></span> Chưa thành công
-                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupLost.length}</span>
-                  </h3>
-                  <span className="text-sm font-bold text-gray-500">{formatMoney(sumValue(groupLost))}</span>
-               </div>
-               <div className="bg-gray-100 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
-                  {groupLost.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal thất bại</p>}
-                  {groupLost.map(renderDealCard)}
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in backdrop-blur-sm">
-          <div className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[95vh]">
-             <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2"><Briefcase className="h-5 w-5 text-red-600"/> {editingId ? 'Cập nhật Deal' : 'Tạo Cơ hội mới'}</h2>
-               <button onClick={() => setShowModal(false)}><X className="h-6 w-6 text-gray-400 hover:text-red-600"/></button>
+      {/* Danh sách Deals */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {deals.map((d) => (
+          <div key={d.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all group">
+             <div className="flex justify-between items-start mb-4">
+                <div className="p-3 bg-blue-50 rounded-xl text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <Briefcase className="h-6 w-6" />
+                </div>
+                <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${d.status === 'WON' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {d.status}
+                </div>
+             </div>
+             
+             <h3 className="text-xl font-bold text-gray-900 mb-1">{d.customer_name}</h3>
+             <div className="space-y-2 mb-4 text-sm text-gray-500">
+                <p className="flex items-center gap-2"><Phone className="h-4 w-4"/> {d.customer_phone || '---'}</p>
+                <p className="flex items-center gap-2"><Calendar className="h-4 w-4"/> {d.start_date}</p>
              </div>
 
-             <div className="p-8 overflow-y-auto flex-1 bg-white">
-                <form id="dealForm" onSubmit={handleSave} className="space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                     <div className="space-y-5">
-                        <div>
-                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Tên Deal / Dự án <span className="text-red-500">*</span></label>
-                          <input required className="w-full border border-gray-300 px-4 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none font-medium" 
-                            placeholder="Ví dụ: Triển khai CRM Giai đoạn 2..."
-                            value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+             <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <span className="text-lg font-bold text-blue-600">{formatMoney(d.total_value)}</span>
+                <button onClick={() => openEdit(d)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
+                    <Pencil className="h-5 w-5" />
+                </button>
+             </div>
+          </div>
+        ))}
+      </div>
+
+      {/* MODAL FORM & PRINT PREVIEW */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+             
+             {/* Modal Header */}
+             <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+               <div>
+                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                   {deal.id ? <><Pencil className="h-6 w-6 text-blue-600"/> Cập nhật Báo Giá</> : <><Plus className="h-6 w-6 text-blue-600"/> Tạo Báo Giá Mới</>}
+                 </h2>
+                 <p className="text-sm text-gray-500 mt-1">Điền thông tin khách hàng và dịch vụ chi tiết</p>
+               </div>
+               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition">
+                 <X className="h-6 w-6" />
+               </button>
+             </div>
+
+             {/* Modal Body */}
+             <div className="flex-1 overflow-y-auto p-8 bg-white">
+                <form id="dealForm" onSubmit={handleSubmit} className="space-y-8">
+                  
+                  {/* Thông tin khách hàng */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">Tên Khách hàng <span className="text-red-500">*</span></label>
+                        <div className="relative">
+                            <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                            <input required type="text" value={deal.customer_name} onChange={e => setDeal({...deal, customer_name: e.target.value})} 
+                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="Nhập tên khách hàng..." />
                         </div>
-                        <div>
-                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Khách hàng <span className="text-red-500">*</span></label>
-                          <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">Số điện thoại</label>
+                        <div className="relative">
+                            <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                            <input type="text" value={deal.customer_phone} onChange={e => setDeal({...deal, customer_phone: e.target.value})} 
+                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="0909..." />
                         </div>
-                     </div>
-                     <div className="space-y-5">
-                        <div className="grid grid-cols-2 gap-5">
-                           <div>
-                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Giai đoạn</label>
-                              <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none bg-white h-11" 
-                                value={formData.stage} onChange={e => setFormData({...formData, stage: e.target.value})}>
-                                <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
-                              </select>
-                           </div>
-                           <div>
-                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Ngày dự kiến chốt</label>
-                              <input type="date" className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none h-11" 
-                                value={formData.expected_close_date} onChange={e => setFormData({...formData, expected_close_date: e.target.value})} />
-                           </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-gray-700">Email</label>
+                        <div className="relative">
+                            <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                            <input type="email" value={deal.customer_email} onChange={e => setDeal({...deal, customer_email: e.target.value})} 
+                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="example@gmail.com" />
                         </div>
-                     </div>
+                    </div>
                   </div>
 
-                  <div className="border-t border-gray-100 pt-6">
-                    <div className="flex justify-between items-center mb-4">
-                       <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Báo giá</h3>
-                       <div className="flex gap-3">
-                         <button type="button" onClick={addCustomItem} className="text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-lg transition flex items-center gap-2">+ Dịch vụ khác</button>
-                         <button type="button" onClick={addProductItem} className="text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md shadow-red-100"><Plus className="h-4 w-4"/> Thêm Sản phẩm</button>
-                       </div>
+                  {/* Danh sách dịch vụ */}
+                  <div>
+                    <div className="flex justify-between items-end mb-4">
+                        <h3 className="text-lg font-bold text-gray-800">Chi tiết Dịch vụ / Sản phẩm</h3>
+                        <button type="button" onClick={handleAddItem} className="text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg font-semibold transition flex items-center gap-1">
+                            <Plus className="h-4 w-4" /> Thêm dòng
+                        </button>
                     </div>
 
-                    <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm">
-                       <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl">
-                          <div className="col-span-5 pl-2">Sản phẩm / Dịch vụ</div>
-                          <div className="col-span-2 text-center">SL</div>
-                          <div className="col-span-2 text-right">Đơn giá</div>
-                          <div className="col-span-2 text-right">Thành tiền</div>
-                          <div className="col-span-1"></div>
-                       </div>
-                       
-                       <div className="p-3 space-y-3">
-                          {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào. Bấm nút "Thêm" ở trên.</p>}
-                          {selectedItems.map((item, index) => {
-                             const TypeIcon = TYPE_CONFIG[item.category]?.icon
-                             const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
-
-                             return (
-                             <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group">
-                                <div className="col-span-5">
-                                   {item.is_custom ? (
-                                     <div className="relative">
-                                        <Pencil className="absolute left-3 top-3 h-3.5 w-3.5 text-gray-400"/>
-                                        <input type="text" placeholder="Nhập tên dịch vụ (VD: Phí gia công...)" autoFocus
-                                          className="w-full border border-gray-300 pl-9 pr-3 py-2.5 rounded text-sm focus:border-red-500 outline-none bg-yellow-50 focus:bg-white transition"
-                                          value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} />
-                                     </div>
-                                   ) : (
-                                     <div className="space-y-1">
-                                        <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
-                                        {item.category && (
-                                          <div className="flex gap-2 pl-1">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${TYPE_CONFIG[item.category]?.color}`}>
-                                              {TypeIcon && <TypeIcon className="h-3 w-3"/>} {TYPE_CONFIG[item.category]?.label}
-                                            </span>
-                                            {CycleConfig && (
-                                              <span className={`text-[10px] px-1.5 py-0.5 flex items-center gap-1 ${CycleConfig.color}`}>
-                                                {CycleConfig.icon && <CycleConfig.icon className="h-3 w-3"/>} {CycleConfig.label}
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
-                                     </div>
-                                   )}
-                                </div>
-                                <div className="col-span-2"><input type="number" min="1" className="w-full p-2.5 border border-gray-300 rounded text-center text-sm outline-none focus:border-red-500" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))} /></div>
-                                <div className="col-span-2"><input type="number" className={`w-full p-2.5 border border-gray-300 rounded text-right text-sm outline-none focus:border-red-500 ${item.is_custom ? 'bg-yellow-50' : ''}`} value={item.price} onChange={e => handleItemChange(index, 'price', Number(e.target.value))} /></div>
-                                <div className="col-span-2 text-right"><span className="font-bold text-sm text-gray-800 block py-2">{formatMoney(item.price * item.quantity)}</span></div>
-                                <div className="col-span-1 text-right"><button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition"><Trash2 className="h-4 w-4"/></button></div>
-                             </div>
-                             )
-                          })}
-                       </div>
+                    <div className="border rounded-xl overflow-hidden shadow-sm">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-700 font-semibold uppercase text-xs">
+                                <tr>
+                                    <th className="p-4 w-[40px]">#</th>
+                                    <th className="p-4">Tên dịch vụ</th>
+                                    <th className="p-4 w-[140px]">Loại</th>
+                                    <th className="p-4 w-[140px]">Chu kỳ</th>
+                                    <th className="p-4 w-[80px] text-center">SL</th>
+                                    <th className="p-4 w-[140px] text-right">Đơn giá</th>
+                                    <th className="p-4 w-[140px] text-right">Thành tiền</th>
+                                    <th className="p-4 w-[50px]"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 bg-white">
+                                {items.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50/50">
+                                        <td className="p-4 text-center text-gray-500">{idx + 1}</td>
+                                        <td className="p-4">
+                                            <input type="text" value={item.service_name} onChange={e => handleUpdateItem(idx, 'service_name', e.target.value)} 
+                                                className="w-full border-none bg-transparent focus:ring-0 font-medium placeholder-gray-400" placeholder="Nhập tên sản phẩm..." />
+                                        </td>
+                                        <td className="p-4">
+                                            <select value={item.service_type} onChange={e => handleUpdateItem(idx, 'service_type', e.target.value)}
+                                                className="w-full bg-transparent border-none focus:ring-0 text-gray-600 text-xs">
+                                                {Object.keys(TYPE_CONFIG).map(key => <option key={key} value={key}>{TYPE_CONFIG[key].label}</option>)}
+                                            </select>
+                                        </td>
+                                        <td className="p-4">
+                                            <select value={item.billing_cycle} onChange={e => handleUpdateItem(idx, 'billing_cycle', e.target.value)}
+                                                className="w-full bg-transparent border-none focus:ring-0 text-gray-600 text-xs">
+                                                {Object.keys(CYCLE_CONFIG).map(key => <option key={key} value={key}>{CYCLE_CONFIG[key].label}</option>)}
+                                            </select>
+                                        </td>
+                                        <td className="p-4">
+                                            <input type="number" min="1" value={item.quantity} onChange={e => handleUpdateItem(idx, 'quantity', Number(e.target.value))} 
+                                                className="w-full text-center border rounded py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <input type="number" min="0" value={item.unit_price} onChange={e => handleUpdateItem(idx, 'unit_price', Number(e.target.value))} 
+                                                className="w-full text-right border rounded py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                                        </td>
+                                        <td className="p-4 text-right font-bold text-gray-800">
+                                            {formatMoney(item.total_price)}
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <button type="button" onClick={() => handleRemoveItem(idx)} className="text-red-400 hover:text-red-600 transition"><Trash2 className="h-4 w-4"/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {items.length === 0 && <div className="p-8 text-center text-gray-400 italic">Chưa có dịch vụ nào. Nhấn "Thêm dòng" để bắt đầu.</div>}
                     </div>
-                    <div className="flex justify-end items-center gap-4 mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                       <span className="text-gray-600 font-bold uppercase text-sm">Tổng cộng:</span>
-                       <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
+
+                    <div className="flex justify-end mt-4 items-center gap-4">
+                        <span className="text-gray-600 font-medium">Tổng cộng:</span>
+                        <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
                     </div>
                   </div>
                 </form>
              </div>
+
+             {/* Modal Footer */}
              <div className="px-8 py-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-4 rounded-b-xl">
                <button onClick={() => setShowModal(false)} className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition">Hủy bỏ</button>
                
-               {/* Nút Xuất PDF - Có Loading */}
-               <button type="button" onClick={exportToPDF} disabled={exporting} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition disabled:bg-blue-300">
-                 {exporting ? <Loader2 className="h-4 w-4 animate-spin"/> : <FileDown className="h-4 w-4"/>}
-                 {exporting ? 'Đang tạo...' : 'Xuất Báo giá'}
-               </button>
+               {/* Nút Xuất PDF - Sử dụng ReactToPrint */}
+               <ReactToPrint
+                  trigger={() => (
+                    <button type="button" className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
+                      <FileDown className="h-4 w-4"/> Xuất Báo Giá (PDF)
+                    </button>
+                  )}
+                  content={() => printRef.current}
+                  documentTitle={`Baogia - ${deal.customer_name || 'KhachHang'} - ${new Date().toISOString().split('T')[0]}`}
+                  pageStyle={`
+                    @page {
+                      size: A4;
+                      margin: 20mm;
+                    }
+                    @media print {
+                      body { -webkit-print-color-adjust: exact; }
+                    }
+                  `}
+                />
 
-               <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition transform active:scale-95">
-                 {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : editingId ? 'Cập nhật' : 'Tạo mới'}
+               <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition">
+                 {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
+                 Lưu Báo Giá
                </button>
              </div>
-          </div>
+           </div>
         </div>
       )}
+
+      {/* =====================================================================================
+          KHUNG IN ẨN (CHỈ HIỆN KHI NHẤN NÚT IN)
+          ===================================================================================== */}
+      <div style={{ display: "none" }}>
+        <div ref={printRef} className="print-container font-serif text-black p-4 max-w-[210mm] mx-auto bg-white">
+          
+          {/* 1. Header & Thông tin công ty */}
+          <div className="flex justify-between items-start border-b-2 border-gray-800 pb-4 mb-6">
+            <div className="flex gap-4">
+               {/* LOGO VUÔNG - KHÔNG BỊ MÉO */}
+               <div className="w-[90px] h-[90px] border border-gray-200 flex items-center justify-center overflow-hidden shrink-0">
+                  {/* --- THAY LINK LOGO CỦA BẠN VÀO ĐÂY --- */}
+                  <img src="/logoVuong_web.png" alt="Logo" className="w-full h-full object-contain" />
+               </div>
+               
+               {/* --- THAY ĐỔI THÔNG TIN CÔNG TY TẠI ĐÂY --- */}
+               <div className="text-sm space-y-1">
+                 <h1 className="text-xl font-bold uppercase text-blue-800">CÔNG TY TNHH MTV TIẾP BƯỚC CÔNG NGHỆ</h1>
+                 <p className="font-semibold">NEXTSOFT.VN</p>
+                 <p><span className="font-bold">Địa chỉ:</span> 48/23 Nguyễn Trãi, Phường Ninh Kiều, TP. Cần Thơ</p>
+                 <p><span className="font-bold">Hotline:</span> 0939.616.929 - <span className="font-bold">Website:</span> nextsoft.vn</p>
+               </div>
+            </div>
+            
+            <div className="text-right">
+              <h2 className="text-2xl font-bold uppercase mb-1">BẢNG BÁO GIÁ</h2>
+              <p className="italic text-sm text-gray-600">Ngày: {new Date().toLocaleDateString('vi-VN')}</p>
+              <p className="text-sm font-bold mt-1 text-gray-500">#{deal.id ? deal.id.slice(0,8).toUpperCase() : 'NEW'}</p>
+            </div>
+          </div>
+
+          {/* 2. Thông tin khách hàng */}
+          <div className="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
+             <h3 className="font-bold text-gray-800 border-b border-gray-300 pb-1 mb-2">THÔNG TIN KHÁCH HÀNG</h3>
+             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                <p><span className="font-semibold">Đơn vị / Khách hàng:</span> {deal.customer_name}</p>
+                <p><span className="font-semibold">Điện thoại:</span> {deal.customer_phone}</p>
+                <p><span className="font-semibold">Email:</span> {deal.customer_email}</p>
+                <p><span className="font-semibold">Người liên hệ:</span> {deal.customer_name}</p>
+             </div>
+          </div>
+
+          {/* 3. Bảng Dịch Vụ - Fix lỗi chồng chéo chữ bằng table-fixed */}
+          <div className="mb-6">
+            <table className="w-full border-collapse border border-gray-300 table-fixed text-sm">
+              <thead>
+                {/* Header màu xám đậm dịu hơn */}
+                <tr className="bg-gray-600 text-white print:bg-gray-600 print:text-white">
+                  <th className="border border-gray-300 p-2 w-[5%] text-center">STT</th>
+                  <th className="border border-gray-300 p-2 w-[40%] text-left">Tên Sản phẩm / Dịch vụ</th>
+                  <th className="border border-gray-300 p-2 w-[15%] text-center">Loại / Chu kỳ</th>
+                  <th className="border border-gray-300 p-2 w-[10%] text-center">SL</th>
+                  <th className="border border-gray-300 p-2 w-[15%] text-right">Đơn giá</th>
+                  <th className="border border-gray-300 p-2 w-[15%] text-right">Thành tiền</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, index) => (
+                  <tr key={index} className="break-inside-avoid">
+                    <td className="border border-gray-300 p-2 text-center align-top">{index + 1}</td>
+                    <td className="border border-gray-300 p-2 align-top break-words">
+                      <div className="font-bold">{item.service_name}</div>
+                      {item.description && <div className="text-xs italic text-gray-500 mt-1">{item.description}</div>}
+                    </td>
+                    <td className="border border-gray-300 p-2 text-center align-top text-xs">
+                       <div>{TYPE_CONFIG[item.service_type]?.label}</div>
+                       <div className="text-gray-500">{CYCLE_CONFIG[item.billing_cycle]?.label}</div>
+                    </td>
+                    <td className="border border-gray-300 p-2 text-center align-top">{item.quantity}</td>
+                    <td className="border border-gray-300 p-2 text-right align-top">{formatMoney(item.unit_price)}</td>
+                    <td className="border border-gray-300 p-2 text-right font-bold align-top">{formatMoney(item.total_price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 4. Tổng kết */}
+          <div className="flex justify-end mb-12">
+             <div className="w-1/2">
+                <div className="flex justify-between py-1 border-b border-gray-200">
+                   <span className="font-semibold">Tổng cộng:</span>
+                   <span className="font-bold">{formatMoney(totalDealValue)}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-gray-200">
+                   <span className="font-semibold">Thuế GTGT (0%):</span>
+                   <span>0 ₫</span>
+                </div>
+                <div className="flex justify-between py-2 text-xl font-extrabold text-red-600 mt-2">
+                   <span>TỔNG THANH TOÁN:</span>
+                   <span>{formatMoney(totalDealValue)}</span>
+                </div>
+                <p className="text-right text-xs italic text-gray-500 mt-1">(Bằng chữ: .....................................................................)</p>
+             </div>
+          </div>
+
+          {/* 5. Chữ ký */}
+          <div className="grid grid-cols-2 gap-8 text-center mt-8 break-inside-avoid">
+             <div>
+                <p className="font-bold uppercase mb-16">Khách hàng xác nhận</p>
+                <p className="italic text-sm">(Ký và ghi rõ họ tên)</p>
+             </div>
+             <div>
+                <p className="font-bold uppercase mb-16">Người lập báo giá</p>
+                <p className="font-bold">Ms. Kim Anh</p>
+             </div>
+          </div>
+          
+          {/* Footer chân trang */}
+          <div className="mt-12 border-t pt-4 text-center text-xs text-gray-500">
+             <p>Cảm ơn quý khách đã quan tâm đến dịch vụ của NextSoft CRM.</p>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   )
 }
