@@ -357,18 +357,17 @@ export default function DealsPage() {
              <div className="hidden print:block mb-8 border-b-2 border-red-600 pb-4">
                <div className="flex justify-between items-start">
                  <div>
-                   <h1 className="text-xl font-extrabold text-red-600 uppercase tracking-wide">CÔNG TY TNHH MTV TIẾP BƯỚC CÔNG NGHỆ (NEXTSOFT)</h1>
+                   <h1 className="text-xl font-extrabold text-red-600 uppercase tracking-wide">CÔNG TY TNHH MTV TIẾP BƯỚC CÔNG NGHỆ</h1>
                    <div className="text-sm text-gray-600 mt-2 space-y-1">
                      <p className="flex items-center gap-2">📍 Địa chỉ: 48/23 Nguyễn Trãi, Phường Ninh Kiều, TP. Cần Thơ</p>
-                     <p className="flex items-center gap-2">🌐 Website: nextsoft.vn | 📧 Email: contact@nextsoft.vn</p>
-                     <p className="flex items-center gap-2">☎️ Hotline: 0939.616.929</p>
+                     <p className="flex items-center gap-2">🌐 Website: nextsoft.vn | 📧 Email: info@nextsoft.vn</p>
+                     <p className="flex items-center gap-2">☎️ Hotline/Zalo: 0939.616.929</p>
                    </div>
                  </div>
                  <div className="text-right">
                    {/* Logo: Thay src bằng đường dẫn logo của bạn */}
                    <img src="/logoVuong_web.png" className="h-16 w-auto" alt="Nextsoft Logo" />
-                   <div className="text-4xl font-black text-gray-200 tracking-tighter">NEXTSOFT</div>
-                   <div className="text-xs font-bold text-gray-400 mt-1 uppercase">Technology Solution</div>
+                   
                  </div>
                </div>
              </div>
@@ -501,9 +500,13 @@ export default function DealsPage() {
                         <div className="grid grid-cols-2 gap-8">
                             <div className="text-xs text-gray-500">
                                 <p className="font-bold text-gray-700 mb-1">Thông tin thanh toán:</p>
-                                <p>Ngân hàng: Vietcombank (VCB)</p>
-                                <p>Số tài khoản: 0123 456 789</p>
-                                <p>Chủ tài khoản: CTY TNHH NEXTSOFT</p>
+                                <p>Ngân hàng: Ngân hàng TMCP Quốc tế Việt Nam (VIB)</p>
+                                <p>Số tài khoản: 009 526 480</p>
+                                <p>Chủ tài khoản: Công Ty TNHH Một Thành Viên Tiếp Bước Công Nghệ</p>
+                                <p>-------</p>
+                                <p>Ngân hàng: Ngân hàng TMCP Tiên Phong (TPB)</p>
+                                <p>Số tài khoản: 000 334 30102</p>
+                                <p>Chủ tài khoản: Hồ Đăng Phương</p>
                             </div>
                             <div className="text-center">
                                 <p className="text-sm font-bold text-gray-700 mb-16">Người lập phiếu</p>
