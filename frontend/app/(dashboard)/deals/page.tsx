@@ -347,11 +347,19 @@ export default function DealsPage() {
         </div>
       )}
 
-      {/* MODAL FORM - ĐÃ SỬA LẠI BACKDROP VÀ REF */}
+      {/* MODAL FORM */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in backdrop-blur-sm overflow-y-auto">
-          {/* 4. GẮN REF VÀO PHẦN BAO NGOÀI NỘI DUNG CẦN IN (CARD TRẮNG) */}
+          {/* GẮN REF VÀO ĐÂY ĐỂ IN */}
           <div ref={componentRef} className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col my-auto relative print:shadow-none print:w-full print:max-w-none print:absolute print:top-0 print:left-0 print:p-8">
+             
+             {/* --- 1. FIX FONT ROBOTO CHO BẢN IN --- */}
+             <style type="text/css" media="print">
+               {`
+                 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+                 body, .print-content { font-family: 'Roboto', Arial, sans-serif !important; }
+               `}
+             </style>
              
              {/* --- PHẦN HEADER CÔNG TY (CHỈ HIỆN KHI IN) --- */}
              <div className="hidden print:block mb-8 border-b-2 border-red-600 pb-4">
@@ -438,8 +446,8 @@ export default function DealsPage() {
                     </div>
 
                     <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm print:bg-white print:border-none print:shadow-none">
-                       {/* Header Bảng */}
-                       <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl print:bg-red-600 print:text-white print:border-none print:rounded-none">
+                       {/* Header Bảng: Nền Xám Đậm + Chữ Đen */}
+                       <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl print:bg-gray-300 print:text-black print:border-none print:rounded-none">
                           <div className="col-span-1 text-center">STT</div>
                           <div className="col-span-4 pl-2">Tên Hạng mục</div>
                           <div className="col-span-2 text-center">ĐVT</div>
