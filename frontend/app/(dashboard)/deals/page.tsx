@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer, MapPin, Phone, Mail } from 'lucide-react'
-import ReactToPrint from 'react-to-print';
+import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer } from 'lucide-react'
+// 1. IMPORT HOOK IN ẤN
+import { useReactToPrint } from 'react-to-print'
 
 // --- CẤU HÌNH ICON & MÀU SẮC ---
 const TYPE_CONFIG: any = {
@@ -19,488 +20,474 @@ const CYCLE_CONFIG: any = {
   'YEARLY': { label: '/ năm', icon: Calendar, color: 'text-blue-600 font-bold' }
 }
 
-const formatMoney = (amount: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount)
+// --- COMPONENT SEARCHABLE SELECT ---
+const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name' }: any) => {
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  const filteredOptions = options.filter((opt: any) => 
+    opt[labelKey].toLowerCase().includes(search.toLowerCase())
+  )
+  const selectedOption = options.find((opt: any) => opt.id === value)
+
+  useEffect(() => {
+    function handleClickOutside(event: any) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false)
+    }
+    document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef]);
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full border border-gray-300 px-3 py-2.5 rounded-lg bg-white flex justify-between items-center cursor-pointer hover:border-red-500 transition h-11"
+      >
+        <span className={`text-sm truncate ${selectedOption ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+          {selectedOption ? selectedOption[labelKey] : placeholder}
+        </span>
+        <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0 ml-2" />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[9999] mt-1 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-60 overflow-hidden flex flex-col w-full min-w-[300px] left-0 animate-in fade-in zoom-in-95 duration-100">
+          <div className="p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-gray-400" />
+              <input 
+                autoFocus type="text" 
+                className="w-full pl-8 pr-2 py-2 text-sm border border-gray-200 rounded outline-none focus:border-red-500"
+                placeholder="Gõ từ khóa..."
+                value={search} onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((opt: any) => (
+                <div key={opt.id} onClick={() => { onChange(opt.id); setIsOpen(false); setSearch('') }}
+                  className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-red-50 border-b border-gray-50 last:border-0 flex justify-between items-center ${opt.id === value ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}
+                >
+                  <span className="truncate mr-2">{opt[labelKey]}</span>
+                  {opt.id === value && <Check className="h-4 w-4 flex-shrink-0"/>}
+                </div>
+              ))
+            ) : <div className="p-4 text-sm text-gray-400 text-center">Không tìm thấy kết quả.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
-export default function DealManager() {
-  const supabase = createClient()
+// --- TRANG CHÍNH ---
+export default function DealsPage() {
   const [deals, setDeals] = useState<any[]>([])
+  const [customers, setCustomers] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [currentUser, setCurrentUser] = useState<string|null>(null)
+  const [editingId, setEditingId] = useState<string|null>(null)
   
-  // Ref cho tính năng in ấn
-  const printRef = useRef<HTMLDivElement>(null);
+  // State Filter & Search
+  const [searchTerm, setSearchTerm] = useState('')
+  const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
+  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
 
-  // State cho form
-  const [deal, setDeal] = useState<any>({
-    customer_name: '',
-    customer_phone: '',
-    customer_email: '',
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: '',
-    status: 'DRAFT',
-    note: ''
-  })
-  
-  const [items, setItems] = useState<any[]>([])
+  // 2. TẠO REF ĐỂ IN ẤN
+  const componentRef = useRef<HTMLDivElement>(null);
 
-  // --- LẤY DỮ LIỆU ---
-  const fetchDeals = async () => {
-    try {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('deals')
-        .select(`
-          *,
-          deal_items (*)
-        `)
-        .order('created_at', { ascending: false })
+  const supabase = createClient()
 
-      if (error) throw error
-      setDeals(data || [])
-    } catch (error) {
-      console.error('Lỗi tải dữ liệu:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [formData, setFormData] = useState({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
+  const [selectedItems, setSelectedItems] = useState<any[]>([])
+
+  // 3. CẤU HÌNH HOOK IN ẤN
+  const handlePrint = useReactToPrint({
+    contentRef: componentRef, // Phiên bản mới dùng contentRef
+    documentTitle: `Bao_Gia_${new Date().toISOString().slice(0,10)}`,
+  });
 
   useEffect(() => {
-    fetchDeals()
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser(); setCurrentUser(user?.id || null); loadData()
+    }
+    init()
   }, [])
 
-  // --- XỬ LÝ FORM ---
-  const handleAddItem = () => {
-    setItems([...items, {
-      service_name: '',
-      service_type: 'SOFTWARE',
-      billing_cycle: 'ONE_TIME',
-      quantity: 1,
-      unit_price: 0,
-      total_price: 0,
-      description: ''
-    }])
-  }
-
-  const handleUpdateItem = (index: number, field: string, value: any) => {
-    const newItems = [...items]
-    newItems[index] = { ...newItems[index], [field]: value }
+  const loadData = async () => {
+    const d = await supabase.from('deals')
+      .select('*, customers(name), profiles(full_name), deal_items(*)')
+      .order('created_at', { ascending: false })
     
-    // Tự động tính thành tiền
-    if (field === 'quantity' || field === 'unit_price') {
-      newItems[index].total_price = newItems[index].quantity * newItems[index].unit_price
-    }
+    const c = await supabase.from('customers').select('id, name')
+    const p = await supabase.from('products').select('*').eq('is_active', true)
     
-    setItems(newItems)
+    setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []); setLoading(false)
   }
 
-  const handleRemoveItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index))
+  // --- LOGIC FORM ---
+  const totalDealValue = selectedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const addProductItem = () => setSelectedItems([...selectedItems, { is_custom: false, product_id: '', name: '', price: 0, quantity: 1 }])
+  const addCustomItem = () => setSelectedItems([...selectedItems, { is_custom: true, product_id: null, name: '', price: 0, quantity: 1 }])
+  
+  const removeItem = (index: number) => {
+    const newItems = [...selectedItems]; newItems.splice(index, 1); setSelectedItems(newItems)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleProductChange = (index: number, productId: string) => {
+    const product = products.find(p => p.id === productId)
+    if (!product) return
+    const newItems = [...selectedItems]
+    newItems[index] = { ...newItems[index], product_id: productId, name: product.name, price: product.price, category: product.category, billing_cycle: product.billing_cycle }
+    setSelectedItems(newItems)
+  }
+
+  const handleItemChange = (index: number, field: string, value: any) => {
+    const newItems = [...selectedItems]; newItems[index] = { ...newItems[index], [field]: value }; setSelectedItems(newItems)
+  }
+
+  const handleEdit = (deal: any) => {
+    setEditingId(deal.id)
+    setFormData({
+      title: deal.title, customer_id: deal.customer_id, stage: deal.stage, expected_close_date: deal.expected_close_date || ''
+    })
+    const items = deal.deal_items.map((di: any) => {
+      const originalProduct = products.find(p => p.id === di.product_id)
+      return {
+        is_custom: !di.product_id,
+        product_id: di.product_id || '',
+        name: di.item_name,
+        price: di.price,
+        quantity: di.quantity,
+        category: originalProduct?.category,
+        billing_cycle: originalProduct?.billing_cycle
+      }
+    })
+    setSelectedItems(items)
+    setShowModal(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Bạn có chắc muốn xóa Cơ hội này không?')) return
+    await supabase.from('deals').delete().eq('id', id)
+    loadData()
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitting(true)
+    if (!formData.customer_id) return alert('Chưa chọn khách hàng!')
+    if (selectedItems.length === 0) return alert('Chưa chọn sản phẩm/dịch vụ nào!')
     
+    setSubmitting(true)
     try {
-      // 1. Lưu Deal
-      const { data: dealData, error: dealError } = await supabase
-        .from('deals')
-        .upsert([{
-           id: deal.id, // Nếu có id thì update, không thì insert
-           ...deal,
-           total_value: items.reduce((sum, item) => sum + item.total_price, 0)
-        }])
-        .select()
-        .single()
-
-      if (dealError) throw dealError
-
-      // 2. Lưu Items (Xóa cũ thêm mới cho đơn giản)
-      if (deal.id) {
-        await supabase.from('deal_items').delete().eq('deal_id', deal.id)
+      const dealPayload = {
+        title: formData.title, customer_id: formData.customer_id, stage: formData.stage,
+        value: totalDealValue, assigned_to: currentUser, expected_close_date: formData.expected_close_date || null
       }
 
-      const itemsToInsert = items.map(item => ({
-        deal_id: dealData.id,
-        ...item
+      let dealId = editingId
+      if (editingId) {
+        const { error } = await supabase.from('deals').update(dealPayload).eq('id', editingId)
+        if (error) throw error
+        await supabase.from('deal_items').delete().eq('deal_id', editingId)
+      } else {
+        const { data, error } = await supabase.from('deals').insert([dealPayload]).select().single()
+        if (error) throw error
+        dealId = data.id
+      }
+
+      const itemsPayload = selectedItems.map(item => ({
+        deal_id: dealId,
+        product_id: item.is_custom ? null : item.product_id,
+        item_name: item.name, 
+        quantity: item.quantity,
+        price: item.price
       }))
+      const { error: err2 } = await supabase.from('deal_items').insert(itemsPayload)
+      if (err2) throw err2
 
-      const { error: itemsError } = await supabase.from('deal_items').insert(itemsToInsert)
-      if (itemsError) throw itemsError
-
-      await fetchDeals()
-      setShowModal(false)
-      // Reset form
-      setDeal({
-        customer_name: '',
-        customer_phone: '',
-        customer_email: '',
-        start_date: new Date().toISOString().split('T')[0],
-        end_date: '',
-        status: 'DRAFT',
-        note: ''
-      })
-      setItems([])
-
-    } catch (error) {
-      console.error('Lỗi lưu:', error)
-      alert('Có lỗi xảy ra!')
+      setShowModal(false); resetForm(); loadData()
+    } catch (err: any) {
+      alert('Lỗi: ' + err.message)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const openEdit = (d: any) => {
-    setDeal({
-        id: d.id,
-        customer_name: d.customer_name,
-        customer_phone: d.customer_phone,
-        customer_email: d.customer_email,
-        start_date: d.start_date,
-        end_date: d.end_date,
-        status: d.status,
-        note: d.note
-    })
-    setItems(d.deal_items || [])
-    setShowModal(true)
+  const resetForm = () => { 
+    setEditingId(null)
+    setFormData({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
+    setSelectedItems([]) 
   }
 
-  const totalDealValue = items.reduce((sum, item) => sum + (item.total_price || 0), 0)
+  const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
 
-  // --- RENDER ---
+  // --- LOGIC FILTER & GROUPING ---
+  const baseFilteredDeals = deals.filter(d => 
+    (viewMode === 'ALL' || d.assigned_to === currentUser) &&
+    (d.title.toLowerCase().includes(searchTerm.toLowerCase()) || d.customers?.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
+
+  const monthFilteredDeals = monthFilter 
+    ? baseFilteredDeals.filter(d => d.created_at.startsWith(monthFilter))
+    : baseFilteredDeals
+
+  const groupRunning = monthFilteredDeals.filter(d => ['NEW', 'NEGOTIATION'].includes(d.stage))
+  const groupWon = monthFilteredDeals.filter(d => d.stage === 'WON')
+  const groupLost = monthFilteredDeals.filter(d => d.stage === 'LOST')
+  const sumValue = (list: any[]) => list.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0)
+
+  const renderDealCard = (deal: any) => (
+    <div key={deal.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative mb-3">
+      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+         <button onClick={() => handleEdit(deal)} className="p-1.5 bg-gray-100 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded" title="Sửa"><Pencil className="h-3 w-3"/></button>
+         <button onClick={() => handleDelete(deal.id)} className="p-1.5 bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded" title="Xóa"><Trash2 className="h-3 w-3"/></button>
+      </div>
+      <div>
+         <div className="flex justify-between items-start mb-2">
+           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
+             {deal.stage}
+           </span>
+         </div>
+         <h3 className="font-bold text-gray-900 truncate text-sm mb-1 pr-10">{deal.title}</h3>
+         <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-2"><User className="h-3 w-3 text-gray-400"/> {deal.customers?.name}</div>
+      </div>
+      <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+        <span className="font-bold text-red-700 text-sm">{formatMoney(deal.value)}</span>
+        <span className="text-[10px] text-gray-400">{new Date(deal.created_at).toLocaleDateString('vi-VN')}</span>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 bg-gray-50 min-h-screen font-sans">
-      
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+    <div className="p-8 h-full flex flex-col bg-gray-50/50">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Quản Lý Báo Giá</h1>
-          <p className="text-gray-500 mt-1 flex items-center gap-2">
-            <Briefcase className="h-4 w-4" />
-            Theo dõi và quản lý các thỏa thuận kinh doanh
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Cơ hội (Deals)</h1>
+          <p className="text-sm text-gray-500">Quản lý Pipeline & Doanh thu</p>
         </div>
-        <button 
-          onClick={() => {
-            setDeal({
-                customer_name: '',
-                customer_phone: '',
-                customer_email: '',
-                start_date: new Date().toISOString().split('T')[0],
-                status: 'DRAFT',
-            })
-            setItems([])
-            setShowModal(true)
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-blue-200 transition-all flex items-center gap-2 transform hover:-translate-y-0.5"
-        >
-          <Plus className="h-5 w-5" /> Tạo Báo Giá Mới
+        <button onClick={() => { resetForm(); setShowModal(true) }} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700 shadow-md transition text-sm">
+          <Plus className="h-4 w-4"/> Thêm mới
         </button>
       </div>
 
-      {/* Danh sách Deals */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {deals.map((d) => (
-          <div key={d.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all group">
-             <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-blue-50 rounded-xl text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                    <Briefcase className="h-6 w-6" />
-                </div>
-                <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${d.status === 'WON' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {d.status}
-                </div>
-             </div>
-             
-             <h3 className="text-xl font-bold text-gray-900 mb-1">{d.customer_name}</h3>
-             <div className="space-y-2 mb-4 text-sm text-gray-500">
-                <p className="flex items-center gap-2"><Phone className="h-4 w-4"/> {d.customer_phone || '---'}</p>
-                <p className="flex items-center gap-2"><Calendar className="h-4 w-4"/> {d.start_date}</p>
-             </div>
-
-             <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                <span className="text-lg font-bold text-blue-600">{formatMoney(d.total_value)}</span>
-                <button onClick={() => openEdit(d)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
-                    <Pencil className="h-5 w-5" />
-                </button>
-             </div>
-          </div>
-        ))}
+      {/* FILTER BAR */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+         <div className="relative flex-1 w-full md:max-w-md">
+           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+           <input type="text" placeholder="Tìm kiếm deal, khách hàng..." 
+             className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 outline-none focus:border-red-500 text-sm" 
+             value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
+           />
+         </div>
+         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5">
+               <Filter className="h-4 w-4 text-gray-500"/>
+               <span className="text-xs font-bold text-gray-500 hidden sm:inline">Tháng:</span>
+               <input type="month" className="bg-transparent text-sm font-medium outline-none text-gray-700 cursor-pointer" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+               {monthFilter && (<button onClick={() => setMonthFilter('')} className="text-xs text-red-500 hover:underline ml-1">Xóa</button>)}
+            </div>
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button onClick={() => setViewMode('MINE')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='MINE'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Của tôi</button>
+              <button onClick={() => setViewMode('ALL')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode==='ALL'?'bg-white text-red-700 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Tất cả</button>
+            </div>
+         </div>
       </div>
 
-      {/* MODAL FORM & PRINT PREVIEW */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-             
-             {/* Modal Header */}
-             <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-               <div>
-                 <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                   {deal.id ? <><Pencil className="h-6 w-6 text-blue-600"/> Cập nhật Báo Giá</> : <><Plus className="h-6 w-6 text-blue-600"/> Tạo Báo Giá Mới</>}
-                 </h2>
-                 <p className="text-sm text-gray-500 mt-1">Điền thông tin khách hàng và dịch vụ chi tiết</p>
+      {/* KANBAN BOARD */}
+      {loading ? (
+        <div className="text-center py-20"><Loader2 className="h-10 w-10 animate-spin mx-auto text-red-500"/></div>
+      ) : (
+        <div className="flex-1 overflow-x-auto pb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-[1024px]">
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> Đang thực hiện
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupRunning.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-blue-600">{formatMoney(sumValue(groupRunning))}</span>
                </div>
-               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition">
-                 <X className="h-6 w-6" />
-               </button>
+               <div className="bg-gray-100/50 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
+                  {groupRunning.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal nào đang chạy</p>}
+                  {groupRunning.map(renderDealCard)}
+               </div>
+            </div>
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span> Thành công
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupWon.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-green-600">{formatMoney(sumValue(groupWon))}</span>
+               </div>
+               <div className="bg-green-50/30 p-2 rounded-xl flex-1 border border-dashed border-green-200 min-h-[200px]">
+                  {groupWon.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Chưa có deal thành công tháng này</p>}
+                  {groupWon.map(renderDealCard)}
+               </div>
+            </div>
+            <div className="flex flex-col h-full">
+               <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-gray-500"></span> Chưa thành công
+                    <span className="ml-2 bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">{groupLost.length}</span>
+                  </h3>
+                  <span className="text-sm font-bold text-gray-500">{formatMoney(sumValue(groupLost))}</span>
+               </div>
+               <div className="bg-gray-100 p-2 rounded-xl flex-1 border border-dashed border-gray-300 min-h-[200px]">
+                  {groupLost.length === 0 && <p className="text-center text-xs text-gray-400 py-10">Không có deal thất bại</p>}
+                  {groupLost.map(renderDealCard)}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL FORM */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in backdrop-blur-sm overflow-y-auto">
+          {/* 4. GẮN REF VÀO PHẦN BAO NGOÀI NỘI DUNG CẦN IN */}
+          <div ref={componentRef} className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col my-auto relative print:shadow-none print:w-full print:max-w-none print:absolute print:top-0 print:left-0">
+             
+             {/* Header Modal - Ẩn nút X khi in */}
+             <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl print:bg-white print:border-b-2 print:border-red-600">
+               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                 <Briefcase className="h-5 w-5 text-red-600"/> 
+                 {editingId ? 'PHIẾU BÁO GIÁ' : 'Tạo Cơ hội mới'}
+               </h2>
+               <button onClick={() => setShowModal(false)} className="print:hidden"><X className="h-6 w-6 text-gray-400 hover:text-red-600"/></button>
              </div>
 
-             {/* Modal Body */}
-             <div className="flex-1 overflow-y-auto p-8 bg-white">
-                <form id="dealForm" onSubmit={handleSubmit} className="space-y-8">
-                  
-                  {/* Thông tin khách hàng */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-gray-700">Tên Khách hàng <span className="text-red-500">*</span></label>
-                        <div className="relative">
-                            <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                            <input required type="text" value={deal.customer_name} onChange={e => setDeal({...deal, customer_name: e.target.value})} 
-                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="Nhập tên khách hàng..." />
+             <div className="p-8 bg-white print:p-4">
+                <form id="dealForm" onSubmit={handleSave} className="space-y-8">
+                  {/* Thông tin chung */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
+                     <div className="space-y-5">
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Tên Deal / Dự án</label>
+                          <input required className="w-full border border-gray-300 px-4 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none font-medium print:border-none print:p-0 print:font-bold print:text-lg" 
+                            placeholder="Ví dụ: Triển khai CRM Giai đoạn 2..."
+                            value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
                         </div>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-gray-700">Số điện thoại</label>
-                        <div className="relative">
-                            <Phone className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                            <input type="text" value={deal.customer_phone} onChange={e => setDeal({...deal, customer_phone: e.target.value})} 
-                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="0909..." />
+                        <div>
+                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Khách hàng</label>
+                          {/* Khi in thì hiện text thay vì dropdown */}
+                          <div className="print:hidden">
+                            <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
+                          </div>
+                          <div className="hidden print:block font-bold text-lg">
+                             {customers.find(c => c.id === formData.customer_id)?.name || '________________'}
+                          </div>
                         </div>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-gray-700">Email</label>
-                        <div className="relative">
-                            <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                            <input type="email" value={deal.customer_email} onChange={e => setDeal({...deal, customer_email: e.target.value})} 
-                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="example@gmail.com" />
+                     </div>
+                     <div className="space-y-5">
+                        <div className="grid grid-cols-2 gap-5">
+                           <div>
+                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Trạng thái</label>
+                              <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none bg-white h-11 print:appearance-none print:border-none print:p-0" 
+                                value={formData.stage} onChange={e => setFormData({...formData, stage: e.target.value})}>
+                                <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
+                              </select>
+                           </div>
+                           <div>
+                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Ngày dự kiến / Ngày lập</label>
+                              <input type="date" className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none h-11 print:border-none print:p-0" 
+                                value={formData.expected_close_date} onChange={e => setFormData({...formData, expected_close_date: e.target.value})} />
+                           </div>
                         </div>
-                    </div>
+                     </div>
                   </div>
 
-                  {/* Danh sách dịch vụ */}
-                  <div>
-                    <div className="flex justify-between items-end mb-4">
-                        <h3 className="text-lg font-bold text-gray-800">Chi tiết Dịch vụ / Sản phẩm</h3>
-                        <button type="button" onClick={handleAddItem} className="text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg font-semibold transition flex items-center gap-1">
-                            <Plus className="h-4 w-4" /> Thêm dòng
-                        </button>
+                  <div className="border-t border-gray-100 pt-6 print:border-t-2 print:border-gray-800">
+                    <div className="flex justify-between items-center mb-4">
+                       <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Báo giá</h3>
+                       <div className="flex gap-3 print:hidden">
+                         <button type="button" onClick={addCustomItem} className="text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-lg transition flex items-center gap-2">+ Dịch vụ khác</button>
+                         <button type="button" onClick={addProductItem} className="text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md shadow-red-100"><Plus className="h-4 w-4"/> Thêm Sản phẩm</button>
+                       </div>
                     </div>
 
-                    <div className="border rounded-xl overflow-hidden shadow-sm">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50 text-gray-700 font-semibold uppercase text-xs">
-                                <tr>
-                                    <th className="p-4 w-[40px]">#</th>
-                                    <th className="p-4">Tên dịch vụ</th>
-                                    <th className="p-4 w-[140px]">Loại</th>
-                                    <th className="p-4 w-[140px]">Chu kỳ</th>
-                                    <th className="p-4 w-[80px] text-center">SL</th>
-                                    <th className="p-4 w-[140px] text-right">Đơn giá</th>
-                                    <th className="p-4 w-[140px] text-right">Thành tiền</th>
-                                    <th className="p-4 w-[50px]"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100 bg-white">
-                                {items.map((item, idx) => (
-                                    <tr key={idx} className="hover:bg-gray-50/50">
-                                        <td className="p-4 text-center text-gray-500">{idx + 1}</td>
-                                        <td className="p-4">
-                                            <input type="text" value={item.service_name} onChange={e => handleUpdateItem(idx, 'service_name', e.target.value)} 
-                                                className="w-full border-none bg-transparent focus:ring-0 font-medium placeholder-gray-400" placeholder="Nhập tên sản phẩm..." />
-                                        </td>
-                                        <td className="p-4">
-                                            <select value={item.service_type} onChange={e => handleUpdateItem(idx, 'service_type', e.target.value)}
-                                                className="w-full bg-transparent border-none focus:ring-0 text-gray-600 text-xs">
-                                                {Object.keys(TYPE_CONFIG).map(key => <option key={key} value={key}>{TYPE_CONFIG[key].label}</option>)}
-                                            </select>
-                                        </td>
-                                        <td className="p-4">
-                                            <select value={item.billing_cycle} onChange={e => handleUpdateItem(idx, 'billing_cycle', e.target.value)}
-                                                className="w-full bg-transparent border-none focus:ring-0 text-gray-600 text-xs">
-                                                {Object.keys(CYCLE_CONFIG).map(key => <option key={key} value={key}>{CYCLE_CONFIG[key].label}</option>)}
-                                            </select>
-                                        </td>
-                                        <td className="p-4">
-                                            <input type="number" min="1" value={item.quantity} onChange={e => handleUpdateItem(idx, 'quantity', Number(e.target.value))} 
-                                                className="w-full text-center border rounded py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <input type="number" min="0" value={item.unit_price} onChange={e => handleUpdateItem(idx, 'unit_price', Number(e.target.value))} 
-                                                className="w-full text-right border rounded py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                                        </td>
-                                        <td className="p-4 text-right font-bold text-gray-800">
-                                            {formatMoney(item.total_price)}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <button type="button" onClick={() => handleRemoveItem(idx)} className="text-red-400 hover:text-red-600 transition"><Trash2 className="h-4 w-4"/></button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {items.length === 0 && <div className="p-8 text-center text-gray-400 italic">Chưa có dịch vụ nào. Nhấn "Thêm dòng" để bắt đầu.</div>}
-                    </div>
+                    <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm print:bg-white print:border-gray-800">
+                       <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl print:bg-gray-200 print:text-black print:border-gray-800">
+                          <div className="col-span-5 pl-2">Sản phẩm / Dịch vụ</div>
+                          <div className="col-span-2 text-center">SL</div>
+                          <div className="col-span-2 text-right">Đơn giá</div>
+                          <div className="col-span-2 text-right">Thành tiền</div>
+                          <div className="col-span-1 print:hidden"></div>
+                       </div>
+                       
+                       <div className="p-3 space-y-3 print:space-y-0">
+                          {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào.</p>}
+                          {selectedItems.map((item, index) => {
+                             const TypeIcon = TYPE_CONFIG[item.category]?.icon
+                             const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
 
-                    <div className="flex justify-end mt-4 items-center gap-4">
-                        <span className="text-gray-600 font-medium">Tổng cộng:</span>
-                        <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
+                             return (
+                             <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group print:border-none print:shadow-none print:border-b print:border-gray-300 print:rounded-none">
+                                <div className="col-span-5">
+                                   {item.is_custom ? (
+                                     <div className="relative">
+                                        <Pencil className="absolute left-3 top-3 h-3.5 w-3.5 text-gray-400 print:hidden"/>
+                                        <input type="text" placeholder="Nhập tên dịch vụ..."
+                                          className="w-full border border-gray-300 pl-9 pr-3 py-2.5 rounded text-sm focus:border-red-500 outline-none bg-yellow-50 focus:bg-white transition print:bg-white print:border-none print:p-0"
+                                          value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} />
+                                     </div>
+                                   ) : (
+                                     <div className="space-y-1">
+                                        {/* Dropdown ẩn khi in */}
+                                        <div className="print:hidden">
+                                           <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
+                                        </div>
+                                        {/* Text hiện khi in */}
+                                        <div className="hidden print:block font-bold">{item.name}</div>
+                                        
+                                        {item.category && (
+                                          <div className="flex gap-2 pl-1">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${TYPE_CONFIG[item.category]?.color} print:border-gray-400 print:text-black print:bg-transparent`}>
+                                              {TypeIcon && <TypeIcon className="h-3 w-3"/>} {TYPE_CONFIG[item.category]?.label}
+                                            </span>
+                                          </div>
+                                        )}
+                                     </div>
+                                   )}
+                                </div>
+                                <div className="col-span-2"><input type="number" min="1" className="w-full p-2.5 border border-gray-300 rounded text-center text-sm outline-none focus:border-red-500 print:border-none print:p-0 print:text-center" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))} /></div>
+                                <div className="col-span-2"><input type="number" className={`w-full p-2.5 border border-gray-300 rounded text-right text-sm outline-none focus:border-red-500 ${item.is_custom ? 'bg-yellow-50' : ''} print:bg-white print:border-none print:p-0`} value={item.price} onChange={e => handleItemChange(index, 'price', Number(e.target.value))} /></div>
+                                <div className="col-span-2 text-right"><span className="font-bold text-sm text-gray-800 block py-2">{formatMoney(item.price * item.quantity)}</span></div>
+                                <div className="col-span-1 text-right print:hidden"><button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition"><Trash2 className="h-4 w-4"/></button></div>
+                             </div>
+                             )
+                          })}
+                       </div>
+                    </div>
+                    <div className="flex justify-end items-center gap-4 mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300 print:bg-white print:border-none">
+                       <span className="text-gray-600 font-bold uppercase text-sm">Tổng cộng:</span>
+                       <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
                     </div>
                   </div>
                 </form>
              </div>
 
-             {/* Modal Footer */}
-             <div className="px-8 py-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-4 rounded-b-xl">
+             {/* Footer Button - Ẩn toàn bộ khi in */}
+             <div className="px-8 py-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-4 rounded-b-xl print:hidden">
                <button onClick={() => setShowModal(false)} className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition">Hủy bỏ</button>
                
-               {/* Nút Xuất PDF - Sử dụng ReactToPrint */}
-               <ReactToPrint
-                  trigger={() => (
-                    <button type="button" className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
-                      <FileDown className="h-4 w-4"/> Xuất Báo Giá (PDF)
-                    </button>
-                  )}
-                  content={() => printRef.current}
-                  documentTitle={`Baogia - ${deal.customer_name || 'KhachHang'} - ${new Date().toISOString().split('T')[0]}`}
-                  pageStyle={`
-                    @page {
-                      size: A4;
-                      margin: 20mm;
-                    }
-                    @media print {
-                      body { -webkit-print-color-adjust: exact; }
-                    }
-                  `}
-                />
+               {/* 5. GỌI HÀM IN KHI CLICK */}
+               <button type="button" onClick={() => handlePrint()} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
+                 <Printer className="h-4 w-4"/> In Báo giá
+               </button>
 
-               <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition">
-                 {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
-                 Lưu Báo Giá
+               <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition transform active:scale-95">
+                 {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : editingId ? 'Cập nhật' : 'Tạo mới'}
                </button>
              </div>
-           </div>
+          </div>
         </div>
       )}
-
-      {/* =====================================================================================
-          KHUNG IN ẨN (CHỈ HIỆN KHI NHẤN NÚT IN)
-          ===================================================================================== */}
-      <div style={{ display: "none" }}>
-        <div ref={printRef} className="print-container font-serif text-black p-4 max-w-[210mm] mx-auto bg-white">
-          
-          {/* 1. Header & Thông tin công ty */}
-          <div className="flex justify-between items-start border-b-2 border-gray-800 pb-4 mb-6">
-            <div className="flex gap-4">
-               {/* LOGO VUÔNG - KHÔNG BỊ MÉO */}
-               <div className="w-[90px] h-[90px] border border-gray-200 flex items-center justify-center overflow-hidden shrink-0">
-                  {/* --- THAY LINK LOGO CỦA BẠN VÀO ĐÂY --- */}
-                  <img src="/logoVuong_web.png" alt="Logo" className="w-full h-full object-contain" />
-               </div>
-               
-               {/* --- THAY ĐỔI THÔNG TIN CÔNG TY TẠI ĐÂY --- */}
-               <div className="text-sm space-y-1">
-                 <h1 className="text-xl font-bold uppercase text-blue-800">CÔNG TY TNHH MTV TIẾP BƯỚC CÔNG NGHỆ</h1>
-                 <p className="font-semibold">NEXTSOFT.VN</p>
-                 <p><span className="font-bold">Địa chỉ:</span> 48/23 Nguyễn Trãi, Phường Ninh Kiều, TP. Cần Thơ</p>
-                 <p><span className="font-bold">Hotline:</span> 0939.616.929 - <span className="font-bold">Website:</span> nextsoft.vn</p>
-               </div>
-            </div>
-            
-            <div className="text-right">
-              <h2 className="text-2xl font-bold uppercase mb-1">BẢNG BÁO GIÁ</h2>
-              <p className="italic text-sm text-gray-600">Ngày: {new Date().toLocaleDateString('vi-VN')}</p>
-              <p className="text-sm font-bold mt-1 text-gray-500">#{deal.id ? deal.id.slice(0,8).toUpperCase() : 'NEW'}</p>
-            </div>
-          </div>
-
-          {/* 2. Thông tin khách hàng */}
-          <div className="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
-             <h3 className="font-bold text-gray-800 border-b border-gray-300 pb-1 mb-2">THÔNG TIN KHÁCH HÀNG</h3>
-             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                <p><span className="font-semibold">Đơn vị / Khách hàng:</span> {deal.customer_name}</p>
-                <p><span className="font-semibold">Điện thoại:</span> {deal.customer_phone}</p>
-                <p><span className="font-semibold">Email:</span> {deal.customer_email}</p>
-                <p><span className="font-semibold">Người liên hệ:</span> {deal.customer_name}</p>
-             </div>
-          </div>
-
-          {/* 3. Bảng Dịch Vụ - Fix lỗi chồng chéo chữ bằng table-fixed */}
-          <div className="mb-6">
-            <table className="w-full border-collapse border border-gray-300 table-fixed text-sm">
-              <thead>
-                {/* Header màu xám đậm dịu hơn */}
-                <tr className="bg-gray-600 text-white print:bg-gray-600 print:text-white">
-                  <th className="border border-gray-300 p-2 w-[5%] text-center">STT</th>
-                  <th className="border border-gray-300 p-2 w-[40%] text-left">Tên Sản phẩm / Dịch vụ</th>
-                  <th className="border border-gray-300 p-2 w-[15%] text-center">Loại / Chu kỳ</th>
-                  <th className="border border-gray-300 p-2 w-[10%] text-center">SL</th>
-                  <th className="border border-gray-300 p-2 w-[15%] text-right">Đơn giá</th>
-                  <th className="border border-gray-300 p-2 w-[15%] text-right">Thành tiền</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, index) => (
-                  <tr key={index} className="break-inside-avoid">
-                    <td className="border border-gray-300 p-2 text-center align-top">{index + 1}</td>
-                    <td className="border border-gray-300 p-2 align-top break-words">
-                      <div className="font-bold">{item.service_name}</div>
-                      {item.description && <div className="text-xs italic text-gray-500 mt-1">{item.description}</div>}
-                    </td>
-                    <td className="border border-gray-300 p-2 text-center align-top text-xs">
-                       <div>{TYPE_CONFIG[item.service_type]?.label}</div>
-                       <div className="text-gray-500">{CYCLE_CONFIG[item.billing_cycle]?.label}</div>
-                    </td>
-                    <td className="border border-gray-300 p-2 text-center align-top">{item.quantity}</td>
-                    <td className="border border-gray-300 p-2 text-right align-top">{formatMoney(item.unit_price)}</td>
-                    <td className="border border-gray-300 p-2 text-right font-bold align-top">{formatMoney(item.total_price)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 4. Tổng kết */}
-          <div className="flex justify-end mb-12">
-             <div className="w-1/2">
-                <div className="flex justify-between py-1 border-b border-gray-200">
-                   <span className="font-semibold">Tổng cộng:</span>
-                   <span className="font-bold">{formatMoney(totalDealValue)}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-gray-200">
-                   <span className="font-semibold">Thuế GTGT (0%):</span>
-                   <span>0 ₫</span>
-                </div>
-                <div className="flex justify-between py-2 text-xl font-extrabold text-red-600 mt-2">
-                   <span>TỔNG THANH TOÁN:</span>
-                   <span>{formatMoney(totalDealValue)}</span>
-                </div>
-                <p className="text-right text-xs italic text-gray-500 mt-1">(Bằng chữ: .....................................................................)</p>
-             </div>
-          </div>
-
-          {/* 5. Chữ ký */}
-          <div className="grid grid-cols-2 gap-8 text-center mt-8 break-inside-avoid">
-             <div>
-                <p className="font-bold uppercase mb-16">Khách hàng xác nhận</p>
-                <p className="italic text-sm">(Ký và ghi rõ họ tên)</p>
-             </div>
-             <div>
-                <p className="font-bold uppercase mb-16">Người lập báo giá</p>
-                <p className="font-bold">Ms. Kim Anh</p>
-             </div>
-          </div>
-          
-          {/* Footer chân trang */}
-          <div className="mt-12 border-t pt-4 text-center text-xs text-gray-500">
-             <p>Cảm ơn quý khách đã quan tâm đến dịch vụ của NextSoft CRM.</p>
-          </div>
-
-        </div>
-      </div>
-
     </div>
   )
 }
