@@ -349,144 +349,187 @@ export default function DealsPage() {
 
       {/* MODAL FORM */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in backdrop-blur-sm overflow-y-auto">
-          {/* 4. GẮN REF VÀO PHẦN BAO NGOÀI NỘI DUNG CẦN IN */}
-          <div ref={componentRef} className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col my-auto relative print:shadow-none print:w-full print:max-w-none print:absolute print:top-0 print:left-0">
-             
-             {/* Header Modal - Ẩn nút X khi in */}
-             <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl print:bg-white print:border-b-2 print:border-red-600">
-               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                 <Briefcase className="h-5 w-5 text-red-600"/> 
-                 {editingId ? 'PHIẾU BÁO GIÁ' : 'Tạo Cơ hội mới'}
-               </h2>
-               <button onClick={() => setShowModal(false)} className="print:hidden"><X className="h-6 w-6 text-gray-400 hover:text-red-600"/></button>
-             </div>
-
-             <div className="p-8 bg-white print:p-4">
-                <form id="dealForm" onSubmit={handleSave} className="space-y-8">
-                  {/* Thông tin chung */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
-                     <div className="space-y-5">
-                        <div>
-                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Tên Deal / Dự án</label>
-                          <input required className="w-full border border-gray-300 px-4 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none font-medium print:border-none print:p-0 print:font-bold print:text-lg" 
-                            placeholder="Ví dụ: Triển khai CRM Giai đoạn 2..."
-                            value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Khách hàng</label>
-                          {/* Khi in thì hiện text thay vì dropdown */}
-                          <div className="print:hidden">
-                            <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
-                          </div>
-                          <div className="hidden print:block font-bold text-lg">
-                             {customers.find(c => c.id === formData.customer_id)?.name || '________________'}
-                          </div>
-                        </div>
-                     </div>
-                     <div className="space-y-5">
-                        <div className="grid grid-cols-2 gap-5">
-                           <div>
-                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Trạng thái</label>
-                              <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none bg-white h-11 print:appearance-none print:border-none print:p-0" 
-                                value={formData.stage} onChange={e => setFormData({...formData, stage: e.target.value})}>
-                                <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
-                              </select>
-                           </div>
-                           <div>
-                              <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Ngày dự kiến / Ngày lập</label>
-                              <input type="date" className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none h-11 print:border-none print:p-0" 
-                                value={formData.expected_close_date} onChange={e => setFormData({...formData, expected_close_date: e.target.value})} />
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-
-                  <div className="border-t border-gray-100 pt-6 print:border-t-2 print:border-gray-800">
-                    <div className="flex justify-between items-center mb-4">
-                       <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Báo giá</h3>
-                       <div className="flex gap-3 print:hidden">
-                         <button type="button" onClick={addCustomItem} className="text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-lg transition flex items-center gap-2">+ Dịch vụ khác</button>
-                         <button type="button" onClick={addProductItem} className="text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md shadow-red-100"><Plus className="h-4 w-4"/> Thêm Sản phẩm</button>
-                       </div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm print:bg-white print:border-gray-800">
-                       <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl print:bg-gray-200 print:text-black print:border-gray-800">
-                          <div className="col-span-5 pl-2">Sản phẩm / Dịch vụ</div>
-                          <div className="col-span-2 text-center">SL</div>
-                          <div className="col-span-2 text-right">Đơn giá</div>
-                          <div className="col-span-2 text-right">Thành tiền</div>
-                          <div className="col-span-1 print:hidden"></div>
-                       </div>
-                       
-                       <div className="p-3 space-y-3 print:space-y-0">
-                          {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào.</p>}
-                          {selectedItems.map((item, index) => {
-                             const TypeIcon = TYPE_CONFIG[item.category]?.icon
-                             const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
-
-                             return (
-                             <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group print:border-none print:shadow-none print:border-b print:border-gray-300 print:rounded-none">
-                                <div className="col-span-5">
-                                   {item.is_custom ? (
-                                     <div className="relative">
-                                        <Pencil className="absolute left-3 top-3 h-3.5 w-3.5 text-gray-400 print:hidden"/>
-                                        <input type="text" placeholder="Nhập tên dịch vụ..."
-                                          className="w-full border border-gray-300 pl-9 pr-3 py-2.5 rounded text-sm focus:border-red-500 outline-none bg-yellow-50 focus:bg-white transition print:bg-white print:border-none print:p-0"
-                                          value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} />
-                                     </div>
-                                   ) : (
-                                     <div className="space-y-1">
-                                        {/* Dropdown ẩn khi in */}
-                                        <div className="print:hidden">
-                                           <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
-                                        </div>
-                                        {/* Text hiện khi in */}
-                                        <div className="hidden print:block font-bold">{item.name}</div>
-                                        
-                                        {item.category && (
-                                          <div className="flex gap-2 pl-1">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${TYPE_CONFIG[item.category]?.color} print:border-gray-400 print:text-black print:bg-transparent`}>
-                                              {TypeIcon && <TypeIcon className="h-3 w-3"/>} {TYPE_CONFIG[item.category]?.label}
-                                            </span>
-                                          </div>
-                                        )}
-                                     </div>
-                                   )}
-                                </div>
-                                <div className="col-span-2"><input type="number" min="1" className="w-full p-2.5 border border-gray-300 rounded text-center text-sm outline-none focus:border-red-500 print:border-none print:p-0 print:text-center" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))} /></div>
-                                <div className="col-span-2"><input type="number" className={`w-full p-2.5 border border-gray-300 rounded text-right text-sm outline-none focus:border-red-500 ${item.is_custom ? 'bg-yellow-50' : ''} print:bg-white print:border-none print:p-0`} value={item.price} onChange={e => handleItemChange(index, 'price', Number(e.target.value))} /></div>
-                                <div className="col-span-2 text-right"><span className="font-bold text-sm text-gray-800 block py-2">{formatMoney(item.price * item.quantity)}</span></div>
-                                <div className="col-span-1 text-right print:hidden"><button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition"><Trash2 className="h-4 w-4"/></button></div>
-                             </div>
-                             )
-                          })}
-                       </div>
-                    </div>
-                    <div className="flex justify-end items-center gap-4 mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300 print:bg-white print:border-none">
-                       <span className="text-gray-600 font-bold uppercase text-sm">Tổng cộng:</span>
-                       <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
-                    </div>
-                  </div>
-                </form>
-             </div>
-
-             {/* Footer Button - Ẩn toàn bộ khi in */}
-             <div className="px-8 py-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-4 rounded-b-xl print:hidden">
-               <button onClick={() => setShowModal(false)} className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition">Hủy bỏ</button>
-               
-               {/* 5. GỌI HÀM IN KHI CLICK */}
-               <button type="button" onClick={() => handlePrint()} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
-                 <Printer className="h-4 w-4"/> In Báo giá
-               </button>
-
-               <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition transform active:scale-95">
-                 {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : editingId ? 'Cập nhật' : 'Tạo mới'}
-               </button>
-             </div>
-          </div>
+        <div ref={componentRef} className="bg-white rounded-xl w-full max-w-5xl shadow-2xl flex flex-col my-auto relative print:shadow-none print:w-full print:max-w-none print:absolute print:top-0 print:left-0 print:p-8">
+    
+    {/* --- PHẦN MỚI THÊM: HEADER CÔNG TY (CHỈ HIỆN KHI IN) --- */}
+    <div className="hidden print:block mb-8 border-b-2 border-red-600 pb-4">
+    <div className="flex justify-between items-start">
+        <div>
+        <h1 className="text-xl font-extrabold text-red-600 uppercase tracking-wide">CÔNG TY TNHH MTV TIẾP BƯỚC CÔNG NGHỆ (NEXTSOFT)</h1>
+        <div className="text-sm text-gray-600 mt-2 space-y-1">
+            <p className="flex items-center gap-2">📍 Địa chỉ: 48/23 Nguyễn Trãi, Phường Ninh Kiều, TP. Cần Thơ</p>
+            <p className="flex items-center gap-2">🌐 Website: nextsoft.vn | 📧 Email: contact@nextsoft.vn</p>
+            <p className="flex items-center gap-2">☎️ Hotline: 0939.616.929</p>
         </div>
+        </div>
+        {/* Logo Text hoặc Ảnh Logo */}
+        <div className="text-right">
+        {/* Nếu có ảnh logo, bạn thay thẻ img vào đây: <img src="/logoVuong_web.png" className="h-16 w-auto" /> */}
+        <img src="/logoVuong_web.png" className="h-16 w-auto" />
+        <div className="text-4xl font-black text-gray-200 tracking-tighter">NEXTSOFT</div>
+        <div className="text-xs font-bold text-gray-400 mt-1 uppercase">Technology Solution</div>
+        </div>
+    </div>
+    </div>
+    {/* ------------------------------------------------------- */}
+
+    {/* Header Modal - Ẩn nút X khi in */}
+    <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl print:bg-white print:border-none print:px-0 print:py-0">
+    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 print:text-2xl print:uppercase print:justify-center print:w-full print:mb-4">
+        <Briefcase className="h-5 w-5 text-red-600 print:hidden"/> 
+        {editingId ? 'PHIẾU BÁO GIÁ DỊCH VỤ' : 'Tạo Cơ hội mới'}
+    </h2>
+    <button onClick={() => setShowModal(false)} className="print:hidden"><X className="h-6 w-6 text-gray-400 hover:text-red-600"/></button>
+    </div>
+
+    <div className="p-8 bg-white print:p-0">
+    <form id="dealForm" onSubmit={handleSave} className="space-y-8">
+        {/* Thông tin chung */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:gap-4">
+            <div className="space-y-5 print:space-y-2">
+            <div>
+                <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Tên Dự án / Hạng mục</label>
+                <input required className="w-full border border-gray-300 px-4 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none font-medium print:border-none print:p-0 print:font-bold print:text-lg print:bg-transparent" 
+                placeholder="Ví dụ: Triển khai CRM Giai đoạn 2..."
+                value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+            </div>
+            <div>
+                <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Kính gửi Khách hàng</label>
+                {/* Khi in thì hiện text thay vì dropdown */}
+                <div className="print:hidden">
+                <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
+                </div>
+                <div className="hidden print:block font-bold text-lg text-gray-800">
+                    {customers.find(c => c.id === formData.customer_id)?.name || '___________________________'}
+                </div>
+            </div>
+            </div>
+            <div className="space-y-5 print:space-y-2">
+            <div className="grid grid-cols-2 gap-5">
+                <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Số báo giá</label>
+                    <div className="text-sm font-bold text-gray-700 h-11 flex items-center">
+                        #{editingId ? editingId.slice(0,6).toUpperCase() : 'NEW'}
+                    </div>
+                    {/* Ẩn select trạng thái khi in cho đẹp */}
+                    <div className="print:hidden">
+                        <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm" 
+                        value={formData.stage} onChange={e => setFormData({...formData, stage: e.target.value})}>
+                        <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Ngày lập phiếu</label>
+                    <input type="date" className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none h-11 print:border-none print:p-0 print:bg-transparent" 
+                    value={formData.expected_close_date} onChange={e => setFormData({...formData, expected_close_date: e.target.value})} />
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div className="border-t border-gray-100 pt-6 print:border-t-2 print:border-red-600 print:mt-4">
+        <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-gray-500"/> Chi tiết Hạng mục</h3>
+            <div className="flex gap-3 print:hidden">
+                <button type="button" onClick={addCustomItem} className="text-sm font-bold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-lg transition flex items-center gap-2">+ Dịch vụ khác</button>
+                <button type="button" onClick={addProductItem} className="text-sm font-bold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md shadow-red-100"><Plus className="h-4 w-4"/> Thêm Sản phẩm</button>
+            </div>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm print:bg-white print:border-none print:shadow-none">
+            {/* Header Bảng */}
+            <div className="grid grid-cols-12 gap-4 p-3 bg-gray-100 text-xs font-bold text-gray-500 uppercase border-b border-gray-200 rounded-t-xl print:bg-red-600 print:text-white print:border-none print:rounded-none">
+                <div className="col-span-1 text-center">STT</div>
+                <div className="col-span-4 pl-2">Tên Hạng mục</div>
+                <div className="col-span-2 text-center">ĐVT</div>
+                <div className="col-span-1 text-center">SL</div>
+                <div className="col-span-2 text-right">Đơn giá</div>
+                <div className="col-span-2 text-right">Thành tiền</div>
+                <div className="col-span-0 print:hidden"></div>
+            </div>
+            
+            <div className="p-3 space-y-3 print:space-y-0 print:p-0">
+                {selectedItems.length === 0 && <p className="text-sm text-gray-400 text-center py-8 italic">Chưa có hạng mục nào.</p>}
+                {selectedItems.map((item, index) => {
+                    const TypeIcon = TYPE_CONFIG[item.category]?.icon
+                    const CycleConfig = CYCLE_CONFIG[item.billing_cycle]
+
+                    return (
+                    <div key={index} className="grid grid-cols-12 gap-4 items-center bg-white p-2 rounded border border-gray-100 shadow-sm relative z-10 group print:border-none print:shadow-none print:border-b print:border-gray-200 print:rounded-none print:py-3">
+                    <div className="col-span-1 text-center font-medium text-gray-500 text-sm">{index + 1}</div>
+                    <div className="col-span-4">
+                        {item.is_custom ? (
+                            <div className="relative">
+                            <Pencil className="absolute left-3 top-3 h-3.5 w-3.5 text-gray-400 print:hidden"/>
+                            <input type="text" placeholder="Nhập tên dịch vụ..."
+                                className="w-full border border-gray-300 pl-9 pr-3 py-2.5 rounded text-sm focus:border-red-500 outline-none bg-yellow-50 focus:bg-white transition print:bg-white print:border-none print:p-0 print:font-semibold"
+                                value={item.name} onChange={e => handleItemChange(index, 'name', e.target.value)} />
+                            </div>
+                        ) : (
+                            <div className="space-y-1">
+                            <div className="print:hidden">
+                                <SearchableSelect options={products} value={item.product_id} onChange={(val: string) => handleProductChange(index, val)} placeholder="Chọn sản phẩm..." labelKey="name"/>
+                            </div>
+                            <div className="hidden print:block font-bold text-sm">{item.name}</div>
+                            </div>
+                        )}
+                    </div>
+                    {/* Đơn vị tính / Loại */}
+                    <div className="col-span-2 text-center text-xs">
+                        {item.category ? TYPE_CONFIG[item.category]?.label : 'Gói'}
+                        {item.billing_cycle && <span className="block text-[10px] text-gray-400">{CYCLE_CONFIG[item.billing_cycle]?.label}</span>}
+                    </div>
+                    
+                    <div className="col-span-1"><input type="number" min="1" className="w-full p-2.5 border border-gray-300 rounded text-center text-sm outline-none focus:border-red-500 print:border-none print:p-0 print:text-center print:bg-transparent" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', Number(e.target.value))} /></div>
+                    <div className="col-span-2"><input type="number" className={`w-full p-2.5 border border-gray-300 rounded text-right text-sm outline-none focus:border-red-500 ${item.is_custom ? 'bg-yellow-50' : ''} print:bg-transparent print:border-none print:p-0`} value={item.price} onChange={e => handleItemChange(index, 'price', Number(e.target.value))} /></div>
+                    <div className="col-span-2 text-right"><span className="font-bold text-sm text-gray-800 block py-2">{formatMoney(item.price * item.quantity)}</span></div>
+                    <div className="col-span-0 text-right print:hidden"><button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition"><Trash2 className="h-4 w-4"/></button></div>
+                    </div>
+                    )
+                })}
+            </div>
+        </div>
+        
+        <div className="flex justify-end items-center gap-4 mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300 print:bg-white print:border-none print:mt-2">
+            <span className="text-gray-600 font-bold uppercase text-sm">Tổng thanh toán:</span>
+            <span className="text-3xl font-extrabold text-red-600">{formatMoney(totalDealValue)}</span>
+        </div>
+        
+        {/* Footer ghi chú khi in */}
+        <div className="hidden print:block mt-8 pt-4 border-t border-gray-300">
+            <div className="grid grid-cols-2 gap-8">
+                <div className="text-xs text-gray-500">
+                    <p className="font-bold text-gray-700 mb-1">Thông tin thanh toán:</p>
+                    <p>Ngân hàng: Vietcombank (VCB)</p>
+                    <p>Số tài khoản: 0123 456 789</p>
+                    <p>Chủ tài khoản: CTY TNHH NEXTSOFT</p>
+                </div>
+                <div className="text-center">
+                    <p className="text-sm font-bold text-gray-700 mb-16">Người lập phiếu</p>
+                    <p className="text-sm font-medium">{currentUser ? 'Admin' : 'Nhân viên kinh doanh'}</p>
+                </div>
+            </div>
+            <p className="text-center text-[10px] text-gray-400 mt-8">Cảm ơn Quý khách đã tin tưởng sử dụng dịch vụ của NextSoft!</p>
+        </div>
+
+        </div>
+    </form>
+    </div>
+
+    {/* Footer Button - Ẩn toàn bộ khi in */}
+    <div className="px-8 py-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-4 rounded-b-xl print:hidden">
+    <button onClick={() => setShowModal(false)} className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition">Hủy bỏ</button>
+    
+    <button type="button" onClick={() => handlePrint()} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
+        <Printer className="h-4 w-4"/> In Báo giá
+    </button>
+
+    <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition transform active:scale-95">
+        {submitting ? <Loader2 className="h-4 w-4 animate-spin"/> : editingId ? 'Cập nhật' : 'Tạo mới'}
+    </button>
+    </div>
+</div>
       )}
     </div>
   )
