@@ -1,273 +1,366 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Users, DollarSign, Briefcase, AlertCircle, Clock, AlertTriangle, CheckCircle2, TrendingUp, RefreshCw } from 'lucide-react'
+import { 
+  Users, DollarSign, Briefcase, AlertCircle, 
+  Clock, TrendingUp, TrendingDown, Filter, PieChart 
+} from 'lucide-react'
 import Link from 'next/link'
 
+// Helper: Format tiền tệ
+const formatMoney = (n: number) => 
+  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
+
 export default function Dashboard() {
-  // Thêm state revenue_month (Tháng này) và deal_counts (Chi tiết từng giai đoạn)
-  const [stats, setStats] = useState({ 
-    totalCustomers: 0, 
-    totalRevenue: 0, 
-    revenueThisMonth: 0, // Mới
-    activeDeals: 0, 
-    pendingTickets: 0 
+  const supabase = createClient()
+  
+  // --- STATE QUẢN LÝ ---
+  const [loading, setLoading] = useState(true)
+  const [selectedDate, setSelectedDate] = useState(new Date()) // Mặc định tháng hiện tại
+  
+  // Dữ liệu hiển thị
+  const [kpi, setKpi] = useState({
+    revenue: { current: 0, lastMonth: 0, growth: 0 },
+    customers: { current: 0, lastMonth: 0, growth: 0 },
+    deals: { active: 0, won: 0 },
+    tickets: { pending: 0 }
   })
   
-  const [dealCounts, setDealCounts] = useState({ NEW: 0, NEGOTIATION: 0 }) // Mới: Đếm chi tiết
+  const [revenueBySource, setRevenueBySource] = useState<any[]>([])
   const [recentDeals, setRecentDeals] = useState<any[]>([])
   const [myTasks, setMyTasks] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  
-  const supabase = createClient()
 
+  // --- LOGIC FETCH DATA ---
   const loadData = async () => {
-    setRefreshing(true)
-    
-    // 1. LẤY USER HIỆN TẠI
+    setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
 
-    // 2. KHÁCH HÀNG
-    const customers = await supabase.from('customers').select('id', { count: 'exact', head: true })
-
-    // 3. DOANH THU & DEAL
-    // Lấy tất cả Deal để tự tính toán Client-side cho nhanh và linh hoạt
-    const { data: allDeals } = await supabase.from('deals').select('value, stage, created_at')
+    // 1. XÁC ĐỊNH KHOẢNG THỜI GIAN (Time Range)
+    const year = selectedDate.getFullYear()
+    const month = selectedDate.getMonth() // 0-11
     
-    let totalRev = 0
-    let monthRev = 0
+    // Start/End của tháng HIỆN TẠI đang chọn
+    const startOfMonth = new Date(year, month, 1).toISOString()
+    const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
+    
+    // Start/End của tháng TRƯỚC (để tính tăng trưởng)
+    const startOfLastMonth = new Date(year, month - 1, 1).toISOString()
+    const endOfLastMonth = new Date(year, month, 0, 23, 59, 59).toISOString()
+
+    // 2. FETCH KHÁCH HÀNG (CUSTOMERS)
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('created_at')
+    
+    // 3. FETCH DEALS
+    // Lưu ý: Ta lấy rộng hơn để tính toán Client-side cho linh hoạt các nhóm nguồn
+    const { data: deals } = await supabase
+      .from('deals')
+      .select('value, stage, created_at, lead_source, title, id, customers(name)')
+      .order('created_at', { ascending: false })
+
+    // 4. FETCH TICKETS & TASKS
+    const { count: pendingTickets } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .neq('status', 'RESOLVED')
+      .neq('status', 'CLOSED')
+
+    let tasksData: any[] = []
+    if (user) {
+      const { data } = await supabase.from('tasks')
+        .select('*, customers(name)')
+        .eq('assigned_to', user.id)
+        .neq('status', 'DONE')
+        .order('due_date', { ascending: true })
+      tasksData = data || []
+    }
+
+    // --- TÍNH TOÁN KPI (BUSINESS LOGIC) ---
+    
+    // Helper check ngày
+    const isInDateRange = (dateStr: string, start: string, end: string) => 
+      dateStr >= start && dateStr <= end
+
+    // A. KHÁCH HÀNG MỚI (NEW CUSTOMERS)
+    const newCustCurrent = customers?.filter(c => isInDateRange(c.created_at, startOfMonth, endOfMonth)).length || 0
+    const newCustLast = customers?.filter(c => isInDateRange(c.created_at, startOfLastMonth, endOfLastMonth)).length || 0
+    
+    // B. DOANH THU (REVENUE - Chỉ tính WON)
+    let revCurrent = 0
+    let revLast = 0
     let countActive = 0
-    let countNew = 0
-    let countNego = 0
+    let sourceMap: Record<string, number> = {}
 
-    const now = new Date()
-    const thisMonth = now.getMonth()
-    const thisYear = now.getFullYear()
+    deals?.forEach(d => {
+      // Tính Pipeline (Active Deals - Không quan tâm tháng, chỉ quan tâm trạng thái hiện tại)
+      if (d.stage !== 'WON' && d.stage !== 'LOST') {
+        countActive++
+      }
 
-    allDeals?.forEach(d => {
-      // Tính doanh thu (Chỉ tính WON)
+      // Tính Doanh Thu (Chỉ tính WON)
       if (d.stage === 'WON') {
         const val = d.value || 0
-        totalRev += val
         
-        // Check nếu thuộc tháng này
-        const dDate = new Date(d.created_at)
-        if (dDate.getMonth() === thisMonth && dDate.getFullYear() === thisYear) {
-          monthRev += val
+        // Doanh thu tháng này
+        if (isInDateRange(d.created_at, startOfMonth, endOfMonth)) {
+          revCurrent += val
+          
+          // Phân nhóm nguồn (Revenue Breakdown)
+          const source = d.lead_source || 'Không xác định'
+          sourceMap[source] = (sourceMap[source] || 0) + val
         }
-      } 
-      // Tính Deal đang chạy (Không phải WON cũng ko phải LOST)
-      else if (d.stage !== 'LOST') {
-        countActive++
-        if (d.stage === 'NEW') countNew++
-        if (d.stage === 'NEGOTIATION') countNego++
+        
+        // Doanh thu tháng trước
+        if (isInDateRange(d.created_at, startOfLastMonth, endOfLastMonth)) {
+          revLast += val
+        }
       }
     })
 
-    // 4. TICKET TỒN ĐỌNG (Chưa đóng)
-    const tickets = await supabase.from('tickets').select('id', { count: 'exact', head: true })
-      .neq('status', 'RESOLVED').neq('status', 'CLOSED')
-
-    setStats({ 
-      totalCustomers: customers.count || 0, 
-      totalRevenue: totalRev, 
-      revenueThisMonth: monthRev,
-      activeDeals: countActive, 
-      pendingTickets: tickets.count || 0 
-    })
-    setDealCounts({ NEW: countNew, NEGOTIATION: countNego })
-
-    // 5. DEAL MỚI NHẤT (Lấy Top 5)
-    const recent = await supabase.from('deals')
-      .select('*, customers(name)')
-      .order('created_at', { ascending: false })
-      .limit(5)
-    setRecentDeals(recent.data || [])
-
-    // 6. VIỆC CẦN LÀM (MY TASKS)
-    // Logic mới: Lấy TẤT CẢ việc chưa xong (kể cả tương lai) để hiển thị
-    if (user) {
-      const tasks = await supabase.from('tasks')
-        .select('*, customers(name)') 
-        .eq('assigned_to', user.id)
-        .neq('status', 'DONE') // Chỉ lấy việc chưa xong
-        .order('due_date', { ascending: true }) // Hạn gần xếp trước
-      
-      setMyTasks(tasks.data || [])
+    // C. TÍNH TĂNG TRƯỞNG (%)
+    const calcGrowth = (curr: number, last: number) => {
+      if (last === 0) return curr > 0 ? 100 : 0
+      return Math.round(((curr - last) / last) * 100)
     }
 
+    setKpi({
+      revenue: { current: revCurrent, lastMonth: revLast, growth: calcGrowth(revCurrent, revLast) },
+      customers: { current: newCustCurrent, lastMonth: newCustLast, growth: calcGrowth(newCustCurrent, newCustLast) },
+      deals: { active: countActive, won: deals?.filter(d => d.stage === 'WON').length || 0 },
+      tickets: { pending: pendingTickets || 0 }
+    })
+
+    // Chuyển sourceMap thành mảng để render & sort
+    const sourceArray = Object.entries(sourceMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value) // Cao nhất lên đầu
+    
+    setRevenueBySource(sourceArray)
+    
+    // Top 5 deals mới nhất (trong tháng chọn hoặc tổng thể tùy logic, ở đây lấy tổng thể mới nhất)
+    setRecentDeals(deals?.slice(0, 5) || [])
+    setMyTasks(tasksData)
     setLoading(false)
-    setRefreshing(false)
   }
 
-  useEffect(() => { loadData() }, [])
+  // Reload khi đổi tháng
+  useEffect(() => { loadData() }, [selectedDate])
 
-  const formatMoney = (n: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n)
-  
-  // Kiểm tra quá hạn
-  const isOverdue = (dateString: string) => {
-    if (!dateString) return false
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    return new Date(dateString) < today
-  }
+  // --- UI COMPONENTS ---
 
-  // Component Thẻ thống kê
-  const StatCard = ({ title, value, subValue, icon: Icon, colorClass, textColor }: any) => (
-    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition relative overflow-hidden group">
-      <div className={`absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity ${textColor}`}>
-        <Icon className="h-16 w-16" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-        {subValue && <p className={`text-xs mt-1 font-medium ${textColor}`}>{subValue}</p>}
-      </div>
-      <div className={`mt-4 h-1 w-full rounded-full bg-gray-100`}>
-        <div className={`h-1 rounded-full ${colorClass}`} style={{ width: '70%' }}></div>
-      </div>
+  // Component chọn tháng
+  const MonthPicker = () => (
+    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5 shadow-sm">
+      <Filter className="h-4 w-4 text-gray-500" />
+      <select 
+        className="text-sm font-semibold text-gray-700 outline-none bg-transparent cursor-pointer"
+        value={selectedDate.getMonth()}
+        onChange={(e) => {
+          const newDate = new Date(selectedDate)
+          newDate.setMonth(parseInt(e.target.value))
+          setSelectedDate(newDate)
+        }}
+      >
+        {Array.from({ length: 12 }, (_, i) => (
+          <option key={i} value={i}>Tháng {i + 1}</option>
+        ))}
+      </select>
+      <select
+        className="text-sm font-semibold text-gray-700 outline-none bg-transparent border-l pl-2 cursor-pointer"
+        value={selectedDate.getFullYear()}
+        onChange={(e) => {
+          const newDate = new Date(selectedDate)
+          newDate.setFullYear(parseInt(e.target.value))
+          setSelectedDate(newDate)
+        }}
+      >
+        {[2024, 2025, 2026, 2027].map(y => (
+          <option key={y} value={y}>{y}</option>
+        ))}
+      </select>
     </div>
   )
 
-  return (
-    <div className="p-8 h-full overflow-y-auto">
-      {/* HEADER */}
-      <div className="mb-8 flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tổng quan dự án</h1>
-          <p className="text-gray-500 text-sm mt-1">Hiệu suất kinh doanh & Công việc hôm nay.</p>
+  // Component Thẻ KPI chuyên nghiệp
+  const StatCard = ({ title, value, growth, icon: Icon, color }: any) => {
+    const isPositive = growth >= 0
+    return (
+      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="text-sm font-medium text-gray-500">{title}</p>
+            <h3 className="text-2xl font-bold text-gray-900 mt-1">{value}</h3>
+          </div>
+          <div className={`p-2 rounded-lg ${color.bg} ${color.text}`}>
+            <Icon className="h-6 w-6" />
+          </div>
         </div>
-        <button 
-          onClick={loadData} 
-          disabled={refreshing}
-          className="flex items-center gap-2 text-sm font-bold text-gray-600 bg-white border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-red-600 transition"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> 
-          {refreshing ? 'Đang tải...' : 'Làm mới'}
-        </button>
+        
+        {/* Growth Indicator */}
+        <div className="mt-4 flex items-center gap-2">
+          <span className={`flex items-center text-xs font-bold px-1.5 py-0.5 rounded ${isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {isPositive ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
+            {Math.abs(growth)}%
+          </span>
+          <span className="text-xs text-gray-400">so với tháng trước</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-8 h-full overflow-y-auto bg-gray-50/50">
+      {/* HEADER */}
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard Tổng quan</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Dữ liệu kinh doanh tháng {selectedDate.getMonth() + 1}/{selectedDate.getFullYear()}
+          </p>
+        </div>
+        <MonthPicker />
       </div>
       
-      {/* KHỐI THỐNG KÊ (Đã nâng cấp) */}
+      {/* KPI GRID */}
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4 mb-8">
         <StatCard 
-          title="Tổng Doanh thu" 
-          value={formatMoney(stats.totalRevenue)} 
-          subValue={`Tháng này: ${formatMoney(stats.revenueThisMonth)}`} // Hiện thêm tháng này
+          title="Doanh thu thực tế (Won)" 
+          value={formatMoney(kpi.revenue.current)} 
+          growth={kpi.revenue.growth}
           icon={DollarSign} 
-          colorClass="bg-yellow-500" 
-          textColor="text-yellow-600"
+          color={{ bg: 'bg-yellow-100', text: 'text-yellow-600' }}
         />
         <StatCard 
-          title="Khách hàng" 
-          value={stats.totalCustomers} 
-          subValue="Tổng số lượng khách"
+          title="Khách hàng mới" 
+          value={kpi.customers.current} 
+          growth={kpi.customers.growth}
           icon={Users} 
-          colorClass="bg-red-600" 
-          textColor="text-red-600"
+          color={{ bg: 'bg-blue-100', text: 'text-blue-600' }}
         />
-        <StatCard 
-          title="Pipeline (Đang chạy)" 
-          value={stats.activeDeals} 
-          subValue={`${dealCounts.NEW} Mới - ${dealCounts.NEGOTIATION} Đàm phán`} // Chi tiết hơn
-          icon={Briefcase} 
-          colorClass="bg-blue-600" 
-          textColor="text-blue-600"
-        />
-        <StatCard 
-          title="Hỗ trợ (Tickets)" 
-          value={stats.pendingTickets} 
-          subValue="Yêu cầu đang chờ xử lý"
-          icon={AlertCircle} 
-          colorClass="bg-purple-500" 
-          textColor="text-purple-600"
-        />
+        {/* Pipeline không cần so sánh tháng, vì nó là snapshot hiện tại */}
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Cơ hội đang chạy</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">{kpi.deals.active}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-purple-100 text-purple-600"><Briefcase className="h-6 w-6"/></div>
+          </div>
+          <div className="mt-4 h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+             <div className="h-full bg-purple-500 w-2/3"></div> 
+             {/* Note: Ở đây có thể tính % tiến độ pipeline nếu muốn */}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Tổng giá trị pipeline tiềm năng</p>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+           <div className="flex justify-between items-start">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Yêu cầu hỗ trợ</p>
+              <h3 className="text-2xl font-bold text-gray-900 mt-1">{kpi.tickets.pending}</h3>
+            </div>
+            <div className="p-2 rounded-lg bg-red-100 text-red-600"><AlertCircle className="h-6 w-6"/></div>
+          </div>
+          <p className="text-xs text-gray-400 mt-4 font-medium text-red-500">Cần xử lý ngay</p>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* BẢNG DEAL MỚI */}
-        <div className="col-span-2 rounded-xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-900 text-lg">Giao dịch gần đây</h3>
-            <Link href="/deals" className="text-sm font-medium text-red-600 hover:bg-red-50 px-3 py-1.5 rounded transition">Xem tất cả</Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-gray-500 border-b border-gray-100 bg-gray-50/50">
-                <tr>
-                  <th className="pb-3 pl-4 pt-3 rounded-tl-lg">Tên Deal</th>
-                  <th className="pb-3 pt-3">Khách hàng</th>
-                  <th className="pb-3 pt-3 text-right pr-4">Giá trị</th>
-                  <th className="pb-3 pt-3 text-center rounded-tr-lg">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {recentDeals.map((d: any) => (
-                  <tr key={d.id} className="hover:bg-yellow-50/30 transition-colors">
-                    <td className="py-3 pl-4 font-bold text-gray-800">{d.title}</td>
-                    <td className="py-3 text-gray-500 text-xs">{d.customers?.name}</td>
-                    <td className="py-3 font-bold text-red-600 text-right pr-4">{formatMoney(d.value)}</td>
-                    <td className="py-3 text-center">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
-                        d.stage === 'WON' ? 'bg-green-50 text-green-700 border-green-200' :
-                        d.stage === 'NEW' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                        d.stage === 'LOST' ? 'bg-gray-100 text-gray-500 border-gray-200' :
-                        'bg-yellow-50 text-yellow-700 border-yellow-200'
-                      }`}>
-                        {d.stage}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* COL 1: REVENUE BREAKDOWN (MỚI) */}
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col">
+          <h3 className="font-bold text-gray-900 text-lg mb-4 flex items-center gap-2">
+            <PieChart className="h-5 w-5 text-gray-500"/> Nguồn doanh thu
+          </h3>
+          
+          {revenueBySource.length > 0 ? (
+            <div className="space-y-4">
+              {revenueBySource.map((src, idx) => {
+                const percent = Math.round((src.value / kpi.revenue.current) * 100) || 0
+                return (
+                  <div key={idx}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-medium text-gray-700">{src.name}</span>
+                      <span className="font-bold text-gray-900">{percent}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full ${idx === 0 ? 'bg-yellow-500' : idx === 1 ? 'bg-blue-500' : 'bg-gray-400'}`} 
+                        style={{ width: `${percent}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 text-right">{formatMoney(src.value)}</p>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+              <p className="text-sm">Chưa có doanh thu tháng này</p>
+            </div>
+          )}
         </div>
 
-        {/* CÔNG VIỆC CẦN LÀM (Đã sửa logic: Hiện tất cả việc chưa xong) */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm flex flex-col h-[450px]">
-          <div className="flex items-center justify-between mb-4 flex-shrink-0">
-            <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-              Việc của tôi <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-xs font-extrabold">{myTasks.length}</span>
-            </h3>
-            <Link href="/tasks" className="text-sm font-medium text-gray-500 hover:text-red-600">Chi tiết</Link>
+        {/* COL 2 & 3: RECENT DEALS & TASKS */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Recent Deals */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+             <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-gray-900 text-lg">Giao dịch mới nhất</h3>
+                <Link href="/deals" className="text-sm text-red-600 hover:underline">Xem tất cả</Link>
+             </div>
+             <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-gray-500 border-b border-gray-100 bg-gray-50/50">
+                  <tr>
+                    <th className="pb-2 pl-2">Deal</th>
+                    <th className="pb-2">Nguồn</th>
+                    <th className="pb-2 text-right">Giá trị</th>
+                    <th className="pb-2 text-center">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {recentDeals.map((d: any) => (
+                    <tr key={d.id} className="hover:bg-gray-50">
+                      <td className="py-3 pl-2">
+                        <p className="font-bold text-gray-800">{d.title}</p>
+                        <p className="text-xs text-gray-500">{d.customers?.name}</p>
+                      </td>
+                      <td className="py-3 text-gray-500 text-xs">{d.lead_source || '-'}</td>
+                      <td className="py-3 font-bold text-gray-900 text-right">{formatMoney(d.value)}</td>
+                      <td className="py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          d.stage === 'WON' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-600 border-gray-200'
+                        }`}>{d.stage}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+             </div>
           </div>
-          
-          <div className="space-y-3 overflow-y-auto pr-1 flex-1 scrollbar-thin scrollbar-thumb-gray-200 custom-scrollbar">
-            {myTasks.length > 0 ? myTasks.map((t: any) => {
-              const overdue = isOverdue(t.due_date)
-              return (
-                <div key={t.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-all group ${overdue ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100 hover:border-red-200 hover:shadow-sm'}`}>
-                  {overdue 
-                    ? <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0 animate-pulse" /> 
-                    : <Clock className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0 group-hover:text-red-500" />
-                  }
-                  
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-bold truncate ${overdue ? 'text-red-700' : 'text-gray-800'}`}>{t.title}</p>
-                    
-                    {t.customers && (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate flex items-center gap-1">
-                        <Users className="h-3 w-3" /> {t.customers.name}
-                      </p>
-                    )}
-                    
-                    <div className="flex justify-between items-center mt-2">
-                      <p className={`text-[10px] font-medium px-2 py-0.5 rounded border ${overdue ? 'bg-white border-red-200 text-red-600' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
-                        {t.due_date ? new Date(t.due_date).toLocaleDateString('vi-VN') : 'Không thời hạn'}
-                      </p>
-                      <span className={`text-[10px] uppercase font-bold ${t.priority === 'HIGH' ? 'text-red-600' : 'text-gray-400'}`}>{t.priority}</span>
+
+          {/* Tasks Mini (Rút gọn) */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+             <h3 className="font-bold text-gray-900 text-lg mb-4">Việc cần làm gấp</h3>
+             <div className="space-y-3">
+               {myTasks.slice(0, 3).map((t: any) => (
+                 <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <Clock className="h-4 w-4 text-red-500" />
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{t.title}</p>
+                        <p className="text-xs text-gray-500">{t.customers?.name}</p>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )
-            }) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400 pb-8">
-                <CheckCircle2 className="h-14 w-14 text-green-100 mb-3" />
-                <p className="text-sm font-medium text-gray-500">Tuyệt vời!</p>
-                <p className="text-xs">Bạn đã hoàn thành hết công việc.</p>
-              </div>
-            )}
+                    <span className="text-xs font-medium bg-white px-2 py-1 rounded border text-gray-600">
+                      {t.due_date ? new Date(t.due_date).toLocaleDateString('vi-VN') : 'No Date'}
+                    </span>
+                 </div>
+               ))}
+               {myTasks.length === 0 && <p className="text-sm text-gray-400">Không có công việc tồn đọng.</p>}
+             </div>
           </div>
         </div>
       </div>
