@@ -2,11 +2,10 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer } from 'lucide-react'
-// 1. IMPORT HOOK IN ẤN
+import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer, Globe, Share2, PhoneCall } from 'lucide-react'
 import { useReactToPrint } from 'react-to-print'
 
-// --- CẤU HÌNH ICON & MÀU SẮC ---
+// --- CẤU HÌNH ICON & MÀU SẮC SẢN PHẨM ---
 const TYPE_CONFIG: any = {
   'SOFTWARE': { label: 'Phần mềm', icon: Package, color: 'bg-blue-100 text-blue-700 border-blue-200' },
   'SERVER': { label: 'Server/VPS', icon: Server, color: 'bg-purple-100 text-purple-700 border-purple-200' },
@@ -19,6 +18,16 @@ const CYCLE_CONFIG: any = {
   'MONTHLY': { label: '/ tháng', icon: Clock, color: 'text-green-600 font-bold' },
   'YEARLY': { label: '/ năm', icon: Calendar, color: 'text-blue-600 font-bold' }
 }
+
+// --- CẤU HÌNH NGUỒN CƠ HỘI ---
+const SOURCE_OPTIONS = [
+  { value: 'Sale', label: 'Sale tự tìm', icon: User },
+  { value: 'Website', label: 'Website/SEO', icon: Globe },
+  { value: 'Facebook', label: 'Facebook Ads', icon: Share2 },
+  { value: 'Referral', label: 'Giới thiệu (Referral)', icon: Share2 },
+  { value: 'Telesale', label: 'Telesale', icon: PhoneCall },
+  { value: 'Other', label: 'Khác', icon: Filter }
+]
 
 // --- COMPONENT SEARCHABLE SELECT ---
 const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name' }: any) => {
@@ -35,7 +44,8 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
     function handleClickOutside(event: any) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) setIsOpen(false)
     }
-    document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
 
   return (
@@ -69,7 +79,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
                 <div key={opt.id} onClick={() => { onChange(opt.id); setIsOpen(false); setSearch('') }}
                   className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-red-50 border-b border-gray-50 last:border-0 flex justify-between items-center ${opt.id === value ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}
                 >
-                  <span className="truncate mr-2">{opt[labelKey]}</span>
+                   <span className="truncate mr-2">{opt[labelKey]}</span>
                   {opt.id === value && <Check className="h-4 w-4 flex-shrink-0"/>}
                 </div>
               ))
@@ -97,15 +107,15 @@ export default function DealsPage() {
   const [viewMode, setViewMode] = useState<'MINE'|'ALL'>('ALL')
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
 
-  // 2. TẠO REF ĐỂ IN ẤN
   const componentRef = useRef<HTMLDivElement>(null);
-
   const supabase = createClient()
 
-  const [formData, setFormData] = useState({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
+  // STATE FORM
+  const [formData, setFormData] = useState({ 
+    title: '', customer_id: '', stage: 'NEW', expected_close_date: '', lead_source: 'Other' 
+  })
   const [selectedItems, setSelectedItems] = useState<any[]>([])
 
-  // 3. CẤU HÌNH HOOK IN ẤN
   const handlePrint = useReactToPrint({
     contentRef: componentRef, 
     documentTitle: `Bao_Gia_${new Date().toISOString().slice(0,10)}`,
@@ -126,7 +136,8 @@ export default function DealsPage() {
     const c = await supabase.from('customers').select('id, name')
     const p = await supabase.from('products').select('*').eq('is_active', true)
     
-    setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []); setLoading(false)
+    setDeals(d.data || []); setCustomers(c.data || []); setProducts(p.data || []);
+    setLoading(false)
   }
 
   // --- LOGIC FORM ---
@@ -135,7 +146,8 @@ export default function DealsPage() {
   const addCustomItem = () => setSelectedItems([...selectedItems, { is_custom: true, product_id: null, name: '', price: 0, quantity: 1 }])
   
   const removeItem = (index: number) => {
-    const newItems = [...selectedItems]; newItems.splice(index, 1); setSelectedItems(newItems)
+    const newItems = [...selectedItems];
+    newItems.splice(index, 1); setSelectedItems(newItems)
   }
 
   const handleProductChange = (index: number, productId: string) => {
@@ -147,13 +159,18 @@ export default function DealsPage() {
   }
 
   const handleItemChange = (index: number, field: string, value: any) => {
-    const newItems = [...selectedItems]; newItems[index] = { ...newItems[index], [field]: value }; setSelectedItems(newItems)
+    const newItems = [...selectedItems];
+    newItems[index] = { ...newItems[index], [field]: value }; setSelectedItems(newItems)
   }
 
   const handleEdit = (deal: any) => {
     setEditingId(deal.id)
     setFormData({
-      title: deal.title, customer_id: deal.customer_id, stage: deal.stage, expected_close_date: deal.expected_close_date || ''
+      title: deal.title, 
+      customer_id: deal.customer_id, 
+      stage: deal.stage, 
+      expected_close_date: deal.expected_close_date || '',
+      lead_source: deal.lead_source || 'Other' 
     })
     const items = deal.deal_items.map((di: any) => {
       const originalProduct = products.find(p => p.id === di.product_id)
@@ -185,8 +202,13 @@ export default function DealsPage() {
     setSubmitting(true)
     try {
       const dealPayload = {
-        title: formData.title, customer_id: formData.customer_id, stage: formData.stage,
-        value: totalDealValue, assigned_to: currentUser, expected_close_date: formData.expected_close_date || null
+        title: formData.title, 
+        customer_id: formData.customer_id, 
+        stage: formData.stage,
+        value: totalDealValue, 
+        assigned_to: currentUser, 
+        expected_close_date: formData.expected_close_date || null,
+        lead_source: formData.lead_source 
       }
 
       let dealId = editingId
@@ -220,7 +242,7 @@ export default function DealsPage() {
 
   const resetForm = () => { 
     setEditingId(null)
-    setFormData({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '' })
+    setFormData({ title: '', customer_id: '', stage: 'NEW', expected_close_date: '', lead_source: 'Other' })
     setSelectedItems([]) 
   }
 
@@ -241,6 +263,7 @@ export default function DealsPage() {
   const groupLost = monthFilteredDeals.filter(d => d.stage === 'LOST')
   const sumValue = (list: any[]) => list.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0)
 
+  // RENDER CARD
   const renderDealCard = (deal: any) => (
     <div key={deal.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex flex-col justify-between border-l-4 border-l-transparent hover:border-l-yellow-500 group relative mb-3">
       <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -250,7 +273,11 @@ export default function DealsPage() {
       <div>
          <div className="flex justify-between items-start mb-2">
            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${deal.stage==='NEW'?'bg-blue-50 text-blue-700 border-blue-200':deal.stage==='WON'?'bg-green-50 text-green-700 border-green-200':deal.stage==='LOST'?'bg-gray-100 text-gray-500 border-gray-200':'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>
-             {deal.stage}
+              {deal.stage}
+           </span>
+           {/* HIỂN THỊ NGUỒN TRÊN CARD */}
+           <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 truncate max-w-[80px]">
+             {deal.lead_source || 'N/A'}
            </span>
          </div>
          <h3 className="font-bold text-gray-900 truncate text-sm mb-1 pr-10">{deal.title}</h3>
@@ -384,7 +411,7 @@ export default function DealsPage() {
              {/* Header Modal - Ẩn nút X khi in */}
              <div className="px-8 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl print:bg-white print:border-none print:px-0 print:py-0">
                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 print:text-2xl print:uppercase print:justify-center print:w-full print:mb-4">
-                 <Briefcase className="h-5 w-5 text-red-600 print:hidden"/> 
+                  <Briefcase className="h-5 w-5 text-red-600 print:hidden"/> 
                  {editingId ? 'PHIẾU BÁO GIÁ DỊCH VỤ' : 'Tạo Cơ hội mới'}
                </h2>
                <button onClick={() => setShowModal(false)} className="print:hidden"><X className="h-6 w-6 text-gray-400 hover:text-red-600"/></button>
@@ -392,7 +419,7 @@ export default function DealsPage() {
 
              <div className="p-8 bg-white print:p-0">
                 <form id="dealForm" onSubmit={handleSave} className="space-y-8">
-                  {/* Thông tin chung */}
+                   {/* Thông tin chung */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:gap-4">
                      <div className="space-y-5 print:space-y-2">
                         <div>
@@ -405,34 +432,51 @@ export default function DealsPage() {
                           <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Kính gửi Khách hàng</label>
                           {/* Khi in thì hiện text thay vì dropdown */}
                           <div className="print:hidden">
-                            <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
+                             <SearchableSelect options={customers} value={formData.customer_id} onChange={(val: string) => setFormData({...formData, customer_id: val})} placeholder="-- Tìm khách hàng --" />
                           </div>
                           <div className="hidden print:block font-bold text-lg text-gray-800">
-                             {customers.find(c => c.id === formData.customer_id)?.name || '___________________________'}
+                              {customers.find(c => c.id === formData.customer_id)?.name || '___________________________'}
                           </div>
                         </div>
                      </div>
                      <div className="space-y-5 print:space-y-2">
-                        <div className="grid grid-cols-2 gap-5">
+                         <div className="grid grid-cols-2 gap-5">
                            <div>
                               <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Số báo giá</label>
-                              <div className="text-sm font-bold text-gray-700 h-11 flex items-center">
-                                 #{editingId ? editingId.slice(0,6).toUpperCase() : 'NEW'}
-                              </div>
-                              {/* Ẩn select trạng thái khi in cho đẹp */}
-                              <div className="print:hidden">
-                                <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm" 
+                              {/* SỬA LẠI: Dùng thẻ input readonly để thẳng hàng */}
+                              <input readOnly className="w-full border border-gray-300 bg-gray-50 px-3 py-2.5 rounded-lg text-sm font-bold text-gray-700 h-11 focus:outline-none print:bg-transparent print:border-none print:p-0"
+                                value={editingId ? '#' + editingId.slice(0,6).toUpperCase() : '#NEW'} />
+                                
+                              {/* SELECT STATUS */}
+                              <div className="print:hidden mt-4">
+                                <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Trạng thái</label>
+                                <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm h-11" 
                                   value={formData.stage} onChange={e => setFormData({...formData, stage: e.target.value})}>
-                                  <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
+                                   <option value="NEW">Mới</option><option value="NEGOTIATION">Đàm phán</option><option value="WON">Thắng (Won)</option><option value="LOST">Thua (Lost)</option>
                                 </select>
                               </div>
                            </div>
+                           
                            <div>
                               <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Ngày lập phiếu</label>
                               <input type="date" className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm focus:border-red-500 outline-none h-11 print:border-none print:p-0 print:bg-transparent" 
                                 value={formData.expected_close_date} onChange={e => setFormData({...formData, expected_close_date: e.target.value})} />
+                                
+                               {/* NGUỒN CƠ HỘI - ĐÃ CĂN CHỈNH */}
+                               <div className="print:hidden mt-4">
+                                 <label className="text-xs font-bold text-gray-500 uppercase mb-1.5 block">Nguồn cơ hội</label>
+                                 <div className="relative">
+                                    <select className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm appearance-none bg-white h-11"
+                                      value={formData.lead_source} onChange={e => setFormData({...formData, lead_source: e.target.value})}>
+                                      {SOURCE_OPTIONS.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none"/>
+                                 </div>
+                               </div>
                            </div>
-                        </div>
+                         </div>
                      </div>
                   </div>
 
@@ -515,7 +559,7 @@ export default function DealsPage() {
                                 <p>Ngân hàng: Ngân hàng TMCP Tiên Phong (TPB)</p>
                                 <p>Số tài khoản: 000 334 30102</p>
                                 <p>Chủ tài khoản: Hồ Đăng Phương</p>
-                            </div>
+                             </div>
                             <div className="text-center">
                                 <p className="text-sm font-bold text-gray-700 mb-16">Người lập phiếu</p>
                                 <p className="text-sm font-medium">{currentUser ? 'Admin' : 'Nhân viên kinh doanh'}</p>
@@ -533,7 +577,7 @@ export default function DealsPage() {
                <button onClick={() => setShowModal(false)} className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition">Hủy bỏ</button>
                
                <button type="button" onClick={() => handlePrint()} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 flex items-center gap-2 transition">
-                 <Printer className="h-4 w-4"/> In Báo giá
+                  <Printer className="h-4 w-4"/> In Báo giá
                </button>
 
                <button type="submit" form="dealForm" disabled={submitting} className="px-8 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-lg shadow-red-200 flex items-center gap-2 transition transform active:scale-95">
