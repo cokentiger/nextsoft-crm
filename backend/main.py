@@ -1,66 +1,90 @@
+import sys
 import os
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Dict, Any
 from dotenv import load_dotenv
 
-# Load biến môi trường
+# 1. Load biến môi trường
 load_dotenv()
 
-# Cấu hình DB
-DATABASE_URL = os.getenv("DATABASE_URL")
-# Fix lỗi nhỏ của thư viện nếu chuỗi bắt đầu bằng postgres://
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-app = FastAPI(title="Nextsoft CRM API")
-
-# Dependency để lấy DB session
-def get_db():
-    db = SessionLocal()
+# 2. IMPORT MODULE AI (Xử lý linh hoạt đường dẫn)
+# Code này giúp anh chạy được dù file ai_service.py nằm ở gốc hay trong folder services/
+try:
+    # Trường hợp chuẩn: nằm trong folder services
+    from services.ai_service import AIService
+    print("✅ Đã load module: services.ai_service")
+except ImportError:
     try:
-        yield db
-    finally:
-        db.close()
+        # Trường hợp phụ: nằm ngay cạnh main.py
+        from ai_service import AIService
+        print("✅ Đã load module: ai_service (root)")
+    except ImportError:
+        print("❌ Lỗi nghiêm trọng: Không tìm thấy file 'ai_service.py'. Vui lòng kiểm tra lại cấu trúc thư mục!")
+        # Class giả để không crash app lúc khởi động, nhưng sẽ lỗi khi gọi
+        class AIService:
+            @staticmethod
+            def generate_content(*args, **kwargs):
+                return {"error": "Server chưa tìm thấy module AI Service"}
 
-# --- MODELS (Ánh xạ bảng trong DB) ---
-class Customer(Base):
-    __tablename__ = "customers"
-    id = Column(UUID(as_uuid=True), primary_key=True)
-    name = Column(String)
-    email = Column(String)
-    health_score = Column(Integer)
-    lifecycle_stage = Column(String)
+app = FastAPI()
 
-class Deployment(Base):
-    __tablename__ = "deployments"
-    id = Column(UUID(as_uuid=True), primary_key=True)
-    customer_id = Column(UUID(as_uuid=True))
-    app_url = Column(String)
-    current_version = Column(String)
-    custom_config = Column(JSONB) # Cấu hình riêng JSON
+# --- 3. CẤU HÌNH BẢO MẬT (CORS) ---
+# Cho phép Frontend gọi vào Backend
+origins = [
+    "http://localhost:3000",        # Next.js Localhost
+    "http://127.0.0.1:3000",        # Next.js IP Local
+    "https://nextsoft-crm.vercel.app", # Domain Production (sau này)
+]
 
-# --- API ENDPOINTS ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Cho phép mọi method: GET, POST, PUT, DELETE...
+    allow_headers=["*"],
+)
+
+# --- 4. ĐỊNH NGHĨA DỮ LIỆU ĐẦU VÀO ---
+class GenerateRequest(BaseModel):
+    template_code: str            # Mã kịch bản (VD: SALE_QUOTE_FOLLOWUP)
+    data_context: Dict[str, Any]  # Dữ liệu đi kèm (VD: customer_name, deal_title...)
+
+# --- 5. CÁC API ENDPOINTS ---
 
 @app.get("/")
 def read_root():
-    return {"message": "Nextsoft CRM API is running!"}
+    return {
+        "status": "online", 
+        "service": "Nextsoft CRM Backend AI",
+        "tech": "FastAPI + Google Gemini"
+    }
 
+@app.post("/api/ai/generate")
+async def generate_ai_content(req: GenerateRequest):
+    """
+    API tạo nội dung tự động bằng AI.
+    - Input: template_code, data_context
+    - Output: { success: true, content: "..." }
+    """
+    print(f"🤖 [API] Nhận yêu cầu: {req.template_code}")
+    print(f"📄 Context: {req.data_context}")
+    
+    # Gọi sang AI Service (File ai_service.py chúng ta vừa sửa)
+    result = AIService.generate_content(req.template_code, req.data_context)
+    
+    # Xử lý lỗi trả về từ Service
+    if "error" in result:
+        print(f"❌ [API] Thất bại: {result['error']}")
+        # Trả về mã lỗi 400 hoặc 500 tùy tình huống
+        status_code = 429 if "429" in str(result["error"]) else 400
+        raise HTTPException(status_code=status_code, detail=result["error"])
+    
+    print("✅ [API] Hoàn tất thành công!")
+    return result
+
+# Endpoint cũ (Giữ lại để tương thích code cũ nếu có)
 @app.get("/customers")
-def get_customers(db: Session = Depends(get_db)):
-    # Lấy danh sách khách hàng
-    return db.query(Customer).all()
-
-@app.get("/deployments/search")
-def search_deployments(feature_key: str, db: Session = Depends(get_db)):
-    # Tìm khách hàng có dùng tính năng đặc biệt (JSONB Query)
-    # VD query: /deployments/search?feature_key=sms_brandname
-    sql = text(f"SELECT * FROM deployments WHERE custom_config ? :key")
-    result = db.execute(sql, {"key": feature_key}).fetchall()
-    return [dict(row._mapping) for row in result]
+def get_customers():
+    return {"message": "Use Supabase Client directly for now"}
