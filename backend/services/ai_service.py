@@ -80,10 +80,14 @@ class AIService:
         try:
             if genai is None:
                 return {"error": "Google GenAI library chưa được load. Kiểm tra requirements.txt"}
-            
-            api_key = config.get("api_key")
+
+            # Prefer environment variable for production secrets (Render env vars)
+            api_key = os.environ.get("GEMINI_API_KEY") or config.get("api_key")
+            if os.environ.get("GEMINI_API_KEY"):
+                print("🔒 Using GEMINI_API_KEY from environment variables (preferred)")
+
             if not api_key:
-                return {"error": "Thiếu API Key trong cấu hình Provider."}
+                return {"error": "Thiếu API Key. Set GEMINI_API_KEY in Render environment variables or in provider config."}
 
             # Xử lý Model Name
             raw_model = config.get("model", "gemini-1.5-flash")
