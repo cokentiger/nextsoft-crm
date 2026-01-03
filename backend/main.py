@@ -41,6 +41,24 @@ except ImportError as e1:
                 return {"error": "Server chưa tìm thấy module AI Service"}
 
 print("=" * 60)
+
+# --- KIỂM TRA BIẾN MÔI TRƯỜNG (STARTUP VALIDATION) ---
+print("\n🔐 Environment Check:")
+gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+if gemini_key:
+    print(f"   ✅ GEMINI_API_KEY found: {gemini_key[:10]}...{gemini_key[-5:]}")
+else:
+    print(f"   ⚠️  GEMINI_API_KEY NOT SET or empty")
+
+supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+if supabase_url and supabase_key:
+    print(f"   ✅ Supabase configured")
+else:
+    print(f"   ⚠️  Supabase NOT fully configured")
+
+print("=" * 60 + "\n")
+
 app = FastAPI()
 
 # --- CẤU HÌNH BẢO MẬT (CORS) ---
