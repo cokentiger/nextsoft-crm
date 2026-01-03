@@ -1,6 +1,17 @@
 import os
-from google import genai
-from google.genai import types
+try:
+    import google.genai as genai
+    from google.genai import types
+except ImportError:
+    try:
+        # Try alternative import if above fails
+        from google import genai
+        from google.genai import types
+    except ImportError as e:
+        print(f"❌ Error importing Google GenAI: {e}")
+        genai = None
+        types = None
+        
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -57,6 +68,9 @@ class AIService:
     @staticmethod
     def _call_gemini_new_sdk(config, prompt):
         try:
+            if genai is None:
+                return {"error": "Google GenAI library chưa được load. Kiểm tra requirements.txt"}
+            
             api_key = config.get("api_key")
             if not api_key:
                 return {"error": "Thiếu API Key trong cấu hình Provider."}
