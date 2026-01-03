@@ -1,14 +1,24 @@
 import os
+import sys
+
+print(f"📁 Python Path: {sys.path[:2]}")
+
+# Import Google GenAI Library
+genai = None
+types = None
+
 try:
     import google.genai as genai
     from google.genai import types
-except ImportError:
+    print("✅ Loaded: google.genai (SDK version 1.x)")
+except ImportError as e1:
+    print(f"⚠️  Failed to import google.genai: {e1}")
     try:
-        # Try alternative import if above fails
         from google import genai
         from google.genai import types
-    except ImportError as e:
-        print(f"❌ Error importing Google GenAI: {e}")
+        print("✅ Loaded: from google.genai")
+    except ImportError as e2:
+        print(f"❌ CRITICAL: Cannot import Google GenAI: {e1}, {e2}")
         genai = None
         types = None
         

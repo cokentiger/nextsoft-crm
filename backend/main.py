@@ -10,23 +10,28 @@ from dotenv import load_dotenv
 # Load biến môi trường
 load_dotenv()
 
+print("=" * 60)
+print("🚀 NEXTSOFT CRM BACKEND STARTING...")
+print("=" * 60)
+
 # --- THÊM BACKEND PATH VÀO SYS.PATH (Xử lý linh hoạt đường dẫn) ---
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
+    print(f"✅ Added to sys.path: {backend_dir}")
 
 # --- IMPORT MODULE AI (Xử lý nhiều trường hợp) ---
 AIService = None
 try:
     from services.ai_service import AIService
-    print("✅ Loaded AI Service từ: services.ai_service")
+    print("✅ Successfully loaded: services.ai_service")
 except ImportError as e1:
-    print(f"⚠️  Lỗi import services.ai_service: {e1}")
+    print(f"❌ Failed to import services.ai_service: {e1}")
     try:
         from ai_service import AIService
-        print("✅ Loaded AI Service từ: ai_service")
+        print("✅ Successfully loaded: ai_service (root)")
     except ImportError as e2:
-        print(f"❌ CRITICAL: Không tìm thấy ai_service module!")
+        print(f"❌ CRITICAL ERROR: Cannot find ai_service module!")
         print(f"   Error 1: {e1}")
         print(f"   Error 2: {e2}")
         # Fallback dummy class
@@ -35,6 +40,7 @@ except ImportError as e1:
             def generate_content(*args, **kwargs):
                 return {"error": "Server chưa tìm thấy module AI Service"}
 
+print("=" * 60)
 app = FastAPI()
 
 # --- CẤU HÌNH BẢO MẬT (CORS) ---
