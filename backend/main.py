@@ -35,7 +35,8 @@ app = FastAPI()
 origins = [
     "http://localhost:3000",        # Next.js Localhost
     "http://127.0.0.1:3000",        # Next.js IP Local
-    "https://nextsoft-crm.vercel.app", # Domain Production (sau này)
+    "https://nextsoft-crm-web.onrender.com",  # Domain Frontend Render
+    "https://nextsoft-crm-api.onrender.com",  # Domain Backend Render (cho localhost calls)
 ]
 
 app.add_middleware(
