@@ -6,9 +6,8 @@ import { createClient } from '@/utils/supabase/client'
 import { Plus, Pencil, Trash2, Calendar, User, Search, Loader2, ShoppingCart, X, ChevronDown, Check, Briefcase, Package, Server, Code, Wrench, Clock, Zap, Filter, FileDown, Printer, Globe, Share2, PhoneCall, Sparkles } from 'lucide-react'
 import { useReactToPrint } from 'react-to-print'
 
-// --- IMPORT AI COMPONENT ---
-// Đảm bảo đường dẫn này đúng với nơi anh tạo file ở bước trước
-import AIAssistant from '@/components/crm/AIAssistant' 
+// --- IMPORT AI COMPONENT (TẠM ẨN) ---
+// import AIAssistant from '@/components/crm/AIAssistant' 
 
 // --- CẤU HÌNH ICON & MÀU SẮC SẢN PHẨM ---
 const TYPE_CONFIG: any = {
@@ -573,9 +572,9 @@ export default function DealsPage() {
                         <p className="text-center text-[10px] text-gray-400 mt-8">Cảm ơn Quý khách đã tin tưởng sử dụng dịch vụ của NextSoft!</p>
                     </div>
 
-                    {/* --- TÍCH HỢP AI ASSISTANT (Ẩn khi in) --- */}
+                    {/* --- TÍCH HỢP AI ASSISTANT (TẠM ẨN) --- */}
                     {/* Phần này sẽ tự động lấy Tên dự án và Tên khách hàng từ Form để truyền vào AI */}
-                    <div className="mt-8 border-t border-gray-100 pt-6 print:hidden">
+                    {/* <div className="mt-8 border-t border-gray-100 pt-6 print:hidden">
                        <h3 className="text-sm font-bold text-gray-500 uppercase mb-4 flex items-center gap-2">
                          <Sparkles className="h-4 w-4 text-purple-600"/> Trợ lý AI (Marketing & Sale)
                        </h3>
@@ -585,6 +584,7 @@ export default function DealsPage() {
                           templateCode="SALE_QUOTE_FOLLOWUP"
                        />
                     </div>
+                    */}
 
                   </div>
                 </form>
